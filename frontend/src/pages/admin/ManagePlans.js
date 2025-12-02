@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -27,6 +27,11 @@ import {
   Grid,
   Avatar,
   Paper,
+  Divider,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
 import {
   LocalOffer,
@@ -36,14 +41,30 @@ import {
   Delete,
   Star,
   Warning,
+  Visibility,
+  CheckCircle,
+  People,
+  Business,
+  Storage,
+  AttachMoney,
 } from '@mui/icons-material';
 import { subscriptionPlansAPI } from '../../services/api';
 
-const planColors = {
-  FREE: '#6B7280',
-  STARTER: '#3B82F6',
-  PROFESSIONAL: '#8B5CF6',
-  ENTERPRISE: '#10B981',
+// Dynamic color palette for plans
+const colorPalette = [
+  '#6B7280', '#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444',
+  '#EC4899', '#14B8A6', '#6366F1', '#84CC16'
+];
+
+// Function to get color for a plan based on its index or code
+const getPlanColor = (planCode, index) => {
+  const knownColors = {
+    FREE: '#6B7280',
+    STARTER: '#3B82F6',
+    PROFESSIONAL: '#8B5CF6',
+    ENTERPRISE: '#10B981',
+  };
+  return knownColors[planCode] || colorPalette[index % colorPalette.length];
 };
 
 export default function ManagePlans() {
@@ -53,6 +74,7 @@ export default function ManagePlans() {
   const [plans, setPlans] = useState([]);
   const [editDialog, setEditDialog] = useState({ open: false, plan: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, plan: null });
+  const [viewDialog, setViewDialog] = useState({ open: false, plan: null });
   const [actionLoading, setActionLoading] = useState(false);
   const [formData, setFormData] = useState({
     code: '',
@@ -310,11 +332,13 @@ export default function ManagePlans() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {plans.map((plan) => (
+                {plans.map((plan, index) => {
+                  const planColor = getPlanColor(plan.code, index);
+                  return (
                   <TableRow key={plan.id} hover>
                     <TableCell>
                       <Box display="flex" alignItems="center" gap={2}>
-                        <Avatar sx={{ bgcolor: planColors[plan.code] || '#667eea', width: 36, height: 36 }}>
+                        <Avatar sx={{ bgcolor: planColor, width: 36, height: 36 }}>
                           {plan.name.charAt(0).toUpperCase()}
                         </Avatar>
                         <Box>
@@ -343,8 +367,8 @@ export default function ManagePlans() {
                         size="small"
                         label={plan.code}
                         sx={{
-                          backgroundColor: `${planColors[plan.code] || '#667eea'}22`,
-                          color: planColors[plan.code] || '#667eea',
+                          backgroundColor: `${planColor}22`,
+                          color: planColor,
                           fontWeight: 600,
                         }}
                       />
@@ -385,6 +409,15 @@ export default function ManagePlans() {
                     </TableCell>
                     <TableCell align="center">
                       <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                        <Tooltip title="View Details">
+                          <IconButton
+                            size="small"
+                            color="info"
+                            onClick={() => setViewDialog({ open: true, plan, color: planColor })}
+                          >
+                            <Visibility fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                         {!plan.is_default && (
                           <Tooltip title="Set as Default">
                             <IconButton
@@ -420,7 +453,8 @@ export default function ManagePlans() {
                       </Box>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </TableContainer>
@@ -637,6 +671,168 @@ export default function ManagePlans() {
             disabled={actionLoading}
           >
             {actionLoading ? 'Deleting...' : 'Delete Permanently'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* View Plan Details Dialog */}
+      <Dialog
+        open={viewDialog.open}
+        onClose={() => setViewDialog({ open: false, plan: null })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{
+          background: `linear-gradient(135deg, ${viewDialog.color || '#667eea'} 0%, ${viewDialog.color || '#764ba2'}99 100%)`,
+          color: 'white',
+        }}>
+          <Box display="flex" alignItems="center" gap={2}>
+            <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+              {viewDialog.plan?.name?.charAt(0).toUpperCase()}
+            </Avatar>
+            <Box>
+              <Typography variant="h6">{viewDialog.plan?.name}</Typography>
+              <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                {viewDialog.plan?.code}
+              </Typography>
+            </Box>
+            {viewDialog.plan?.is_default && (
+              <Chip
+                size="small"
+                label="Default"
+                icon={<Star sx={{ fontSize: 14, color: 'inherit' }} />}
+                sx={{
+                  bgcolor: 'rgba(255,255,255,0.2)',
+                  color: 'white',
+                  ml: 'auto'
+                }}
+              />
+            )}
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {/* Description */}
+          {viewDialog.plan?.description && (
+            <Paper sx={{ p: 2, mb: 3, bgcolor: '#f8fafc', borderRadius: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                {viewDialog.plan.description}
+              </Typography>
+            </Paper>
+          )}
+
+          {/* Pricing */}
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            Pricing
+          </Typography>
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid item xs={6}>
+              <Paper sx={{ p: 2, textAlign: 'center', borderRadius: 2, border: '1px solid #e5e7eb' }}>
+                <AttachMoney color="primary" />
+                <Typography variant="h5" fontWeight={700} color="primary">
+                  {viewDialog.plan?.currency} {parseFloat(viewDialog.plan?.price_monthly || 0).toLocaleString()}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">per month</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={6}>
+              <Paper sx={{ p: 2, textAlign: 'center', borderRadius: 2, border: '1px solid #e5e7eb' }}>
+                <AttachMoney color="success" />
+                <Typography variant="h5" fontWeight={700} color="success.main">
+                  {viewDialog.plan?.currency} {parseFloat(viewDialog.plan?.price_yearly || 0).toLocaleString()}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">per year</Typography>
+              </Paper>
+            </Grid>
+          </Grid>
+
+          {/* Limits */}
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            Plan Limits
+          </Typography>
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid item xs={4}>
+              <Paper sx={{ p: 2, textAlign: 'center', borderRadius: 2, bgcolor: '#f0f9ff' }}>
+                <People sx={{ color: '#3b82f6', mb: 0.5 }} />
+                <Typography variant="h6" fontWeight={600}>
+                  {viewDialog.plan?.max_users >= 999 ? '∞' : viewDialog.plan?.max_users}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">Users</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={4}>
+              <Paper sx={{ p: 2, textAlign: 'center', borderRadius: 2, bgcolor: '#f0fdf4' }}>
+                <Business sx={{ color: '#10b981', mb: 0.5 }} />
+                <Typography variant="h6" fontWeight={600}>
+                  {viewDialog.plan?.max_clients >= 9999 ? '∞' : viewDialog.plan?.max_clients}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">Clients</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={4}>
+              <Paper sx={{ p: 2, textAlign: 'center', borderRadius: 2, bgcolor: '#fef3c7' }}>
+                <Storage sx={{ color: '#f59e0b', mb: 0.5 }} />
+                <Typography variant="h6" fontWeight={600}>
+                  {viewDialog.plan?.max_storage_mb >= 99999 ? '∞' : `${viewDialog.plan?.max_storage_mb}MB`}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">Storage</Typography>
+              </Paper>
+            </Grid>
+          </Grid>
+
+          {/* Features */}
+          {viewDialog.plan?.features && viewDialog.plan.features.length > 0 && (
+            <>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Features
+              </Typography>
+              <Paper sx={{ borderRadius: 2, border: '1px solid #e5e7eb' }}>
+                <List dense>
+                  {viewDialog.plan.features.map((feature, idx) => (
+                    <ListItem key={idx} divider={idx < viewDialog.plan.features.length - 1}>
+                      <ListItemIcon sx={{ minWidth: 36 }}>
+                        <CheckCircle sx={{ color: viewDialog.color || '#10b981', fontSize: 20 }} />
+                      </ListItemIcon>
+                      <ListItemText primary={feature} />
+                    </ListItem>
+                  ))}
+                </List>
+              </Paper>
+            </>
+          )}
+
+          {/* Status Info */}
+          <Divider sx={{ my: 3 }} />
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            <Box display="flex" gap={1}>
+              <Chip
+                size="small"
+                label={viewDialog.plan?.is_active ? 'Active' : 'Inactive'}
+                color={viewDialog.plan?.is_active ? 'success' : 'default'}
+              />
+              <Chip
+                size="small"
+                label={`${viewDialog.plan?.organizations_count || 0} organizations using`}
+                variant="outlined"
+              />
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              Sort Order: {viewDialog.plan?.sort_order}
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setViewDialog({ open: false, plan: null })}>
+            Close
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<Edit />}
+            onClick={() => {
+              setViewDialog({ open: false, plan: null });
+              openEditDialog(viewDialog.plan);
+            }}
+          >
+            Edit Plan
           </Button>
         </DialogActions>
       </Dialog>

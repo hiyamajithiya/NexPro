@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -36,30 +36,35 @@ import {
   CheckCircle,
   ArrowUpward,
 } from '@mui/icons-material';
-import { platformAdminAPI } from '../../services/api';
+import { platformAdminAPI, subscriptionPlansAPI } from '../../services/api';
 
-const planColors = {
-  FREE: '#6B7280',
-  STARTER: '#3B82F6',
-  PROFESSIONAL: '#8B5CF6',
-  ENTERPRISE: '#10B981',
-};
-
-const planDetails = {
-  FREE: { name: 'Free', users: 1, clients: 10 },
-  STARTER: { name: 'Starter', users: 3, clients: 50 },
-  PROFESSIONAL: { name: 'Professional', users: 10, clients: 200 },
-  ENTERPRISE: { name: 'Enterprise', users: -1, clients: -1 },
-};
+// Default colors for plans - will be dynamically assigned
+const defaultPlanColors = ['#6B7280', '#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444'];
 
 export default function Subscriptions() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [organizations, setOrganizations] = useState([]);
   const [stats, setStats] = useState(null);
+  const [subscriptionPlans, setSubscriptionPlans] = useState([]);
   const [upgradeDialog, setUpgradeDialog] = useState({ open: false, org: null });
-  const [selectedPlan, setSelectedPlan] = useState('STARTER');
+  const [selectedPlan, setSelectedPlan] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+
+  // Create dynamic plan colors and details from fetched plans
+  const planColors = {};
+  const planDetails = {};
+  subscriptionPlans.forEach((plan, index) => {
+    planColors[plan.code] = defaultPlanColors[index % defaultPlanColors.length];
+    planDetails[plan.code] = {
+      name: plan.name,
+      users: plan.max_users >= 999 ? -1 : plan.max_users,
+      clients: plan.max_clients >= 9999 ? -1 : plan.max_clients,
+      price_monthly: plan.price_monthly,
+      price_yearly: plan.price_yearly,
+      currency: plan.currency,
+    };
+  });
 
   useEffect(() => {
     fetchData();
@@ -69,14 +74,16 @@ export default function Subscriptions() {
     setLoading(true);
     setError('');
     try {
-      const [orgsRes, statsRes] = await Promise.all([
+      const [orgsRes, statsRes, plansRes] = await Promise.all([
         platformAdminAPI.getOrganizations(),
         platformAdminAPI.getStats(),
+        subscriptionPlansAPI.getAll(),
       ]);
       // Filter only active (non-trial) organizations
       const paidOrgs = orgsRes.data.filter(org => org.status === 'ACTIVE');
       setOrganizations(paidOrgs);
       setStats(statsRes.data);
+      setSubscriptionPlans(plansRes.data || []);
     } catch (err) {
       setError('Failed to load subscription data');
       console.error(err);
@@ -158,6 +165,21 @@ export default function Subscriptions() {
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
           {error}
+        </Alert>
+      )}
+
+      {/* Warning if no subscription plans */}
+      {subscriptionPlans.length === 0 && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 3 }}
+          action={
+            <Button color="inherit" size="small" href="/super-admin/manage-plans">
+              Create Plans
+            </Button>
+          }
+        >
+          No subscription plans configured. Go to <strong>Manage Plans</strong> to create subscription plans first.
         </Alert>
       )}
 
@@ -345,13 +367,15 @@ export default function Subscriptions() {
                         </Typography>
                       </TableCell>
                       <TableCell align="center">
-                        <Tooltip title="Upgrade Plan">
+                        <Tooltip title="Change Plan">
                           <IconButton
                             size="small"
                             color="primary"
                             onClick={() => {
                               setUpgradeDialog({ open: true, org });
-                              setSelectedPlan(org.plan === 'STARTER' ? 'PROFESSIONAL' : 'ENTERPRISE');
+                              // Set default to next available plan
+                              const availablePlans = subscriptionPlans.filter(p => p.is_active && p.code !== org.plan);
+                              setSelectedPlan(availablePlans.length > 0 ? availablePlans[0].code : '');
                             }}
                           >
                             <ArrowUpward fontSize="small" />
@@ -409,24 +433,25 @@ export default function Subscriptions() {
               onChange={(e) => setSelectedPlan(e.target.value)}
               label="New Plan"
             >
-              <MenuItem value="STARTER">
-                <Box>
-                  <Typography>Starter - $29/month</Typography>
-                  <Typography variant="caption" color="text.secondary">Up to 3 users, 50 clients</Typography>
-                </Box>
-              </MenuItem>
-              <MenuItem value="PROFESSIONAL">
-                <Box>
-                  <Typography>Professional - $79/month</Typography>
-                  <Typography variant="caption" color="text.secondary">Up to 10 users, 200 clients</Typography>
-                </Box>
-              </MenuItem>
-              <MenuItem value="ENTERPRISE">
-                <Box>
-                  <Typography>Enterprise - Custom pricing</Typography>
-                  <Typography variant="caption" color="text.secondary">Unlimited users & clients</Typography>
-                </Box>
-              </MenuItem>
+              {subscriptionPlans
+                .filter(plan => plan.is_active && plan.code !== upgradeDialog.org?.plan)
+                .map(plan => (
+                  <MenuItem key={plan.code} value={plan.code}>
+                    <Box>
+                      <Typography>
+                        {plan.name} - {plan.currency} {parseFloat(plan.price_monthly).toLocaleString()}/month
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {plan.max_users >= 999 ? 'Unlimited' : `Up to ${plan.max_users}`} users, {plan.max_clients >= 9999 ? 'Unlimited' : plan.max_clients} clients
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+              {subscriptionPlans.filter(plan => plan.is_active && plan.code !== upgradeDialog.org?.plan).length === 0 && (
+                <MenuItem disabled>
+                  <Typography color="text.secondary">No other plans available</Typography>
+                </MenuItem>
+              )}
             </Select>
           </FormControl>
         </DialogContent>

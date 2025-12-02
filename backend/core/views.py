@@ -2240,10 +2240,19 @@ class PlatformAdminViewSet(viewsets.ViewSet):
             created_at__gte=this_month_start
         ).count()
 
-        # Plan distribution
+        # Plan distribution - dynamically from SubscriptionPlan model
         plan_distribution = {}
-        for plan_code in ['FREE', 'STARTER', 'PROFESSIONAL', 'ENTERPRISE']:
-            plan_distribution[plan_code] = Organization.objects.filter(plan=plan_code).count()
+        # First, get counts from SubscriptionPlan records
+        subscription_plans = SubscriptionPlan.objects.filter(is_active=True)
+        for plan in subscription_plans:
+            plan_distribution[plan.code] = Organization.objects.filter(plan=plan.code).count()
+        # Also include any legacy/hardcoded plan codes that may still be in use
+        legacy_codes = ['FREE', 'STARTER', 'PROFESSIONAL', 'ENTERPRISE']
+        for plan_code in legacy_codes:
+            if plan_code not in plan_distribution:
+                count = Organization.objects.filter(plan=plan_code).count()
+                if count > 0:  # Only include if there are orgs using this plan
+                    plan_distribution[plan_code] = count
 
         # Total clients and tasks across platform
         total_clients = Client.objects.count()
