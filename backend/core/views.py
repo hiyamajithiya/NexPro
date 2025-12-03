@@ -16,7 +16,8 @@ from .models import (
     Organization, OrganizationEmail, Subscription,
     Client, WorkType, WorkTypeAssignment, ClientWorkMapping, WorkInstance,
     EmailTemplate, ReminderRule, ReminderInstance, Notification, TaskDocument,
-    ReportConfiguration, EmailOTP, AuditLog, PlatformSettings, SubscriptionPlan
+    ReportConfiguration, EmailOTP, AuditLog, PlatformSettings, SubscriptionPlan,
+    CredentialVault
 )
 from .serializers import (
     OrganizationSerializer, OrganizationMinimalSerializer,
@@ -29,7 +30,8 @@ from .serializers import (
     ReminderRuleSerializer, ReminderInstanceSerializer,
     NotificationSerializer, CustomTokenObtainPairSerializer,
     TaskDocumentSerializer, ReportConfigurationSerializer,
-    PlatformSettingsSerializer, SubscriptionPlanSerializer
+    PlatformSettingsSerializer, SubscriptionPlanSerializer,
+    CredentialVaultSerializer, CredentialVaultDecryptedSerializer
 )
 from .permissions import (
     IsPlatformAdmin, IsOrganizationAdmin, IsAdminOrPartner,
@@ -2036,6 +2038,78 @@ class NotificationViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
 
 # =============================================================================
+# CREDENTIAL VAULT VIEWS
+# =============================================================================
+
+class CredentialVaultViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
+    """ViewSet for managing client portal credentials (encrypted)"""
+    serializer_class = CredentialVaultSerializer
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrPartner]
+    filterset_fields = ['client', 'portal_type']
+    ordering_fields = ['client__client_name', 'portal_type', 'last_updated']
+
+    def get_queryset(self):
+        """Filter credentials by organization"""
+        organization = getattr(self.request, 'organization', None)
+        if not organization:
+            return CredentialVault.objects.none()
+
+        return CredentialVault.objects.filter(
+            organization=organization
+        ).select_related('client').order_by('client__client_name', 'portal_type')
+
+    @action(detail=False, methods=['get'])
+    def by_client(self, request):
+        """Get all credentials for a specific client"""
+        client_id = request.query_params.get('client_id')
+        if not client_id:
+            return Response({'error': 'client_id is required'}, status=400)
+
+        credentials = self.get_queryset().filter(client_id=client_id)
+        serializer = self.get_serializer(credentials, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get'])
+    def reveal(self, request, pk=None):
+        """Reveal (decrypt) the password for a credential - with audit logging"""
+        credential = self.get_object()
+        try:
+            decrypted_password = credential.decrypt_password()
+
+            # Log the access for audit purposes
+            AuditLog.objects.create(
+                organization=request.organization,
+                user=request.user,
+                action='CREDENTIAL_ACCESS',
+                resource_type='CredentialVault',
+                resource_id=str(credential.id),
+                details={
+                    'client_id': str(credential.client.id),
+                    'client_name': credential.client.client_name,
+                    'portal_type': credential.portal_type
+                },
+                ip_address=request.META.get('REMOTE_ADDR'),
+                user_agent=request.META.get('HTTP_USER_AGENT', '')[:500]
+            )
+
+            return Response({
+                'password': decrypted_password,
+                'portal_type': credential.portal_type,
+                'username': credential.username
+            })
+        except Exception as e:
+            return Response({'error': 'Failed to decrypt password'}, status=500)
+
+    @action(detail=False, methods=['get'])
+    def portal_types(self, request):
+        """Get available portal types"""
+        return Response([
+            {'value': choice[0], 'label': choice[1]}
+            for choice in CredentialVault.PORTAL_TYPE_CHOICES
+        ])
+
+
+# =============================================================================
 # DASHBOARD VIEWS
 # =============================================================================
 
@@ -2950,6 +3024,77 @@ class ReportConfigurationViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
         org_name = report_config.organization.name if report_config.organization else 'Report'
         filename = f"{org_name.replace(' ', '_')}_Report_{timezone.now().strftime('%Y%m%d')}.pdf"
+
+        response = FileResponse(
+            pdf_buffer,
+            content_type='application/pdf'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    @action(detail=False, methods=['post'])
+    def generate_adhoc_pdf(self, request):
+        """Generate and download an ad-hoc report PDF"""
+        from .services.report_service import ReportService
+        from django.http import FileResponse
+        from datetime import datetime
+
+        # Get parameters from request
+        report_type = request.data.get('report_type', 'TASK_SUMMARY')
+        start_date_str = request.data.get('start_date')
+        end_date_str = request.data.get('end_date')
+        filters = {
+            'client_id': request.data.get('client', 'ALL'),
+            'work_type_id': request.data.get('work_type', 'ALL'),
+            'status': request.data.get('status', 'ALL'),
+            'assigned_to': request.data.get('assigned_to', 'ALL'),
+        }
+
+        # Parse dates
+        start_date = None
+        end_date = None
+        if start_date_str:
+            try:
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+        if end_date_str:
+            try:
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+
+        # Get organization from user
+        organization = request.user.organization
+
+        # Fetch report data
+        data = ReportService.get_adhoc_report_data(
+            organization,
+            start_date,
+            end_date,
+            report_type,
+            filters
+        )
+
+        # Generate PDF
+        pdf_buffer = ReportService.generate_adhoc_pdf_report(
+            organization,
+            report_type,
+            data
+        )
+
+        # Report type labels for filename
+        report_type_labels = {
+            'TASK_SUMMARY': 'Task_Summary',
+            'CLIENT_SUMMARY': 'Client_Summary',
+            'WORK_TYPE_SUMMARY': 'Work_Type_Summary',
+            'STAFF_PRODUCTIVITY': 'Staff_Productivity',
+            'STATUS_ANALYSIS': 'Status_Analysis',
+        }
+
+        org_name = organization.name if organization else 'Report'
+        report_label = report_type_labels.get(report_type, 'Adhoc')
+        filename = f"{org_name.replace(' ', '_')}_{report_label}_{timezone.now().strftime('%Y%m%d_%H%M')}.pdf"
 
         response = FileResponse(
             pdf_buffer,

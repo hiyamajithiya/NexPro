@@ -21,6 +21,7 @@ import {
   VisibilityOff,
   AccountCircle,
   Lock,
+  Home as HomeIcon,
 } from '@mui/icons-material';
 import { authAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -108,6 +109,27 @@ export default function Login() {
       }}
     >
       {loading && <LinearProgress sx={{ position: 'absolute', top: 0, left: 0, right: 0 }} />}
+
+      {/* Back to Home Button */}
+      <Button
+        component={RouterLink}
+        to="/home"
+        startIcon={<HomeIcon />}
+        sx={{
+          position: 'absolute',
+          top: 24,
+          left: 24,
+          color: 'white',
+          bgcolor: 'rgba(255,255,255,0.15)',
+          backdropFilter: 'blur(10px)',
+          '&:hover': {
+            bgcolor: 'rgba(255,255,255,0.25)',
+          },
+          zIndex: 2,
+        }}
+      >
+        Back to Home
+      </Button>
 
       <Slide direction="up" in={true} timeout={600}>
         <Paper

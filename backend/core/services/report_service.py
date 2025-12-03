@@ -736,3 +736,420 @@ NexCA Report System
             return today.day == report_config.day_of_month
 
         return False
+
+    @staticmethod
+    def get_adhoc_report_data(organization, start_date, end_date, report_type, filters=None):
+        """
+        Fetch ad-hoc report data based on report type and filters.
+        Returns a dictionary with statistics based on report type.
+        """
+        from django.db.models import Sum
+        from django.db.models.functions import Coalesce
+        from datetime import timedelta
+
+        filters = filters or {}
+
+        # Base queryset for this organization's tasks
+        tasks = WorkInstance.objects.filter(organization=organization)
+
+        # Apply date filters
+        if start_date:
+            tasks = tasks.filter(due_date__gte=start_date)
+        if end_date:
+            tasks = tasks.filter(due_date__lte=end_date)
+
+        # Apply optional filters
+        if filters.get('client_id') and filters['client_id'] != 'ALL':
+            tasks = tasks.filter(client_work__client_id=filters['client_id'])
+        if filters.get('work_type_id') and filters['work_type_id'] != 'ALL':
+            tasks = tasks.filter(client_work__work_type_id=filters['work_type_id'])
+        if filters.get('status') and filters['status'] != 'ALL':
+            tasks = tasks.filter(status=filters['status'])
+        if filters.get('assigned_to') and filters['assigned_to'] != 'ALL':
+            tasks = tasks.filter(assigned_to_id=filters['assigned_to'])
+
+        # Get all filtered tasks for detail table
+        task_list = list(tasks.select_related(
+            'client_work__client',
+            'client_work__work_type',
+            'assigned_to'
+        ).values(
+            'id', 'status', 'due_date', 'period_label', 'completed_on',
+            'client_work__client__client_name',
+            'client_work__client__client_code',
+            'client_work__work_type__work_name',
+            'assigned_to__first_name',
+            'assigned_to__last_name',
+            'assigned_to__username',
+            'time_spent_minutes'
+        ))
+
+        # Calculate summary statistics
+        total_tasks = tasks.count()
+        status_counts = dict(tasks.values('status').annotate(count=Count('id')).values_list('status', 'count'))
+
+        summary = {
+            'total_tasks': total_tasks,
+            'completed': status_counts.get('COMPLETED', 0),
+            'overdue': status_counts.get('OVERDUE', 0),
+            'in_progress': status_counts.get('STARTED', 0) + status_counts.get('PAUSED', 0),
+            'not_started': status_counts.get('NOT_STARTED', 0),
+            'period_start': start_date,
+            'period_end': end_date,
+            'report_type': report_type,
+        }
+
+        if total_tasks > 0:
+            summary['completion_rate'] = round((summary['completed'] / total_tasks) * 100, 1)
+        else:
+            summary['completion_rate'] = 0
+
+        # Generate specific report data based on type
+        if report_type == 'TASK_SUMMARY':
+            chart_data = {
+                'NOT_STARTED': status_counts.get('NOT_STARTED', 0),
+                'STARTED': status_counts.get('STARTED', 0),
+                'PAUSED': status_counts.get('PAUSED', 0),
+                'COMPLETED': status_counts.get('COMPLETED', 0),
+                'OVERDUE': status_counts.get('OVERDUE', 0),
+            }
+            return {'summary': summary, 'status_breakdown': chart_data, 'tasks': task_list}
+
+        elif report_type == 'CLIENT_SUMMARY':
+            client_wise = tasks.values(
+                'client_work__client__client_name',
+                'client_work__client__client_code'
+            ).annotate(
+                total=Count('id'),
+                completed=Count('id', filter=Q(status='COMPLETED')),
+                overdue=Count('id', filter=Q(status='OVERDUE')),
+                pending=Count('id', filter=Q(status__in=['NOT_STARTED', 'STARTED', 'PAUSED']))
+            ).order_by('-total')[:20]
+            return {'summary': summary, 'client_wise': list(client_wise), 'tasks': task_list}
+
+        elif report_type == 'WORK_TYPE_SUMMARY':
+            work_type_wise = tasks.values(
+                'client_work__work_type__work_name',
+                'client_work__work_type__statutory_form'
+            ).annotate(
+                total=Count('id'),
+                completed=Count('id', filter=Q(status='COMPLETED')),
+                overdue=Count('id', filter=Q(status='OVERDUE')),
+                pending=Count('id', filter=Q(status__in=['NOT_STARTED', 'STARTED', 'PAUSED']))
+            ).order_by('-total')
+            return {'summary': summary, 'work_type_wise': list(work_type_wise), 'tasks': task_list}
+
+        elif report_type == 'STAFF_PRODUCTIVITY':
+            employee_wise = tasks.exclude(
+                assigned_to__isnull=True
+            ).values(
+                'assigned_to__first_name',
+                'assigned_to__last_name',
+                'assigned_to__email'
+            ).annotate(
+                total=Count('id'),
+                completed=Count('id', filter=Q(status='COMPLETED')),
+                overdue=Count('id', filter=Q(status='OVERDUE')),
+                pending=Count('id', filter=Q(status__in=['NOT_STARTED', 'STARTED', 'PAUSED'])),
+                total_time=Coalesce(Sum('time_spent_minutes'), 0)
+            ).order_by('-total')
+            return {'summary': summary, 'employee_wise': list(employee_wise), 'tasks': task_list}
+
+        elif report_type == 'STATUS_ANALYSIS':
+            status_breakdown = {
+                'NOT_STARTED': status_counts.get('NOT_STARTED', 0),
+                'STARTED': status_counts.get('STARTED', 0),
+                'PAUSED': status_counts.get('PAUSED', 0),
+                'COMPLETED': status_counts.get('COMPLETED', 0),
+                'OVERDUE': status_counts.get('OVERDUE', 0),
+            }
+            return {'summary': summary, 'status_breakdown': status_breakdown, 'tasks': task_list}
+
+        return {'summary': summary, 'tasks': task_list}
+
+    @staticmethod
+    def generate_adhoc_pdf_report(organization, report_type, data, title=None):
+        """
+        Generate a PDF for ad-hoc reports with custom parameters.
+        Returns: BytesIO buffer containing the PDF
+        """
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=0.75*inch,
+            leftMargin=0.75*inch,
+            topMargin=0.75*inch,
+            bottomMargin=0.75*inch
+        )
+
+        # Styles
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(
+            name='ReportTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            spaceAfter=20,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor('#1a237e')
+        ))
+        styles.add(ParagraphStyle(
+            name='SectionTitle',
+            parent=styles['Heading2'],
+            fontSize=14,
+            spaceBefore=15,
+            spaceAfter=10,
+            textColor=colors.HexColor('#303f9f')
+        ))
+        styles.add(ParagraphStyle(
+            name='SubTitle',
+            parent=styles['Normal'],
+            fontSize=10,
+            alignment=TA_CENTER,
+            textColor=colors.grey
+        ))
+
+        elements = []
+
+        # Report type labels
+        report_type_labels = {
+            'TASK_SUMMARY': 'Task Summary Report',
+            'CLIENT_SUMMARY': 'Client Summary Report',
+            'WORK_TYPE_SUMMARY': 'Work Type Summary Report',
+            'STAFF_PRODUCTIVITY': 'Staff Productivity Report',
+            'STATUS_ANALYSIS': 'Status Analysis Report',
+        }
+
+        # Title
+        org_name = organization.name if organization else 'Organization'
+        report_title = title or report_type_labels.get(report_type, 'Ad-hoc Report')
+        elements.append(Paragraph(f"{org_name} - {report_title}", styles['ReportTitle']))
+
+        # Subtitle with date range
+        summary = data.get('summary', {})
+        period_start = summary.get('period_start')
+        period_end = summary.get('period_end')
+        if period_start and period_end:
+            if hasattr(period_start, 'strftime'):
+                date_range = f"Period: {period_start.strftime('%d %b %Y')} - {period_end.strftime('%d %b %Y')}"
+            else:
+                date_range = f"Period: {period_start} - {period_end}"
+            elements.append(Paragraph(date_range, styles['SubTitle']))
+        elements.append(Paragraph(f"Generated on: {datetime.now().strftime('%d %b %Y at %H:%M')}", styles['SubTitle']))
+        elements.append(Spacer(1, 20))
+
+        # Horizontal line
+        elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#e0e0e0')))
+        elements.append(Spacer(1, 15))
+
+        # Summary Section
+        elements.append(Paragraph("Executive Summary", styles['SectionTitle']))
+        summary_data = [
+            ['Metric', 'Value'],
+            ['Total Tasks', str(summary.get('total_tasks', 0))],
+            ['Completed', f"{summary.get('completed', 0)} ({summary.get('completion_rate', 0)}%)"],
+            ['In Progress', str(summary.get('in_progress', 0))],
+            ['Not Started', str(summary.get('not_started', 0))],
+            ['Overdue', str(summary.get('overdue', 0))],
+        ]
+
+        summary_table = Table(summary_data, colWidths=[3*inch, 2*inch])
+        summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3f51b5')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f5f5f5')),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 1), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+        ]))
+        elements.append(summary_table)
+        elements.append(Spacer(1, 20))
+
+        # Status Chart
+        if 'status_breakdown' in data:
+            pie_chart_buffer = ReportService.create_status_pie_chart(data['status_breakdown'])
+            if pie_chart_buffer:
+                elements.append(Paragraph("Status Distribution", styles['SectionTitle']))
+                img = Image(pie_chart_buffer, width=5*inch, height=3.5*inch)
+                elements.append(img)
+                elements.append(Spacer(1, 20))
+
+        # Client-wise breakdown
+        if 'client_wise' in data and data['client_wise']:
+            elements.append(Paragraph("Client-wise Task Breakdown", styles['SectionTitle']))
+            client_data = [['Client', 'Code', 'Total', 'Completed', 'Pending', 'Overdue']]
+            for client in data['client_wise'][:20]:
+                client_data.append([
+                    (client.get('client_work__client__client_name', 'Unknown') or 'Unknown')[:25],
+                    (client.get('client_work__client__client_code', '') or '')[:10],
+                    str(client.get('total', 0)),
+                    str(client.get('completed', 0)),
+                    str(client.get('pending', 0)),
+                    str(client.get('overdue', 0))
+                ])
+
+            client_table = Table(client_data, colWidths=[2*inch, 0.8*inch, 0.7*inch, 0.9*inch, 0.8*inch, 0.8*inch])
+            client_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3f51b5')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (2, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')]),
+            ]))
+            elements.append(client_table)
+            elements.append(Spacer(1, 20))
+
+        # Work Type-wise breakdown
+        if 'work_type_wise' in data and data['work_type_wise']:
+            elements.append(Paragraph("Work Type-wise Task Breakdown", styles['SectionTitle']))
+
+            # Chart
+            wt_chart_buffer = ReportService.create_work_type_chart(data['work_type_wise'])
+            if wt_chart_buffer:
+                img = Image(wt_chart_buffer, width=6*inch, height=3.5*inch)
+                elements.append(img)
+                elements.append(Spacer(1, 10))
+
+            wt_data = [['Work Type', 'Total', 'Completed', 'Pending', 'Overdue']]
+            for wt in data['work_type_wise'][:15]:
+                name = wt.get('client_work__work_type__work_name', 'Unknown')
+                wt_data.append([
+                    name[:30],
+                    str(wt.get('total', 0)),
+                    str(wt.get('completed', 0)),
+                    str(wt.get('pending', 0)),
+                    str(wt.get('overdue', 0))
+                ])
+
+            wt_table = Table(wt_data, colWidths=[2.5*inch, 0.8*inch, 1*inch, 0.9*inch, 0.9*inch])
+            wt_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3f51b5')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTSIZE', (0, 1), (-1, -1), 9),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')]),
+            ]))
+            elements.append(wt_table)
+            elements.append(Spacer(1, 20))
+
+        # Employee-wise breakdown
+        if 'employee_wise' in data and data['employee_wise']:
+            elements.append(Paragraph("Staff Productivity Summary", styles['SectionTitle']))
+
+            # Chart
+            emp_chart_buffer = ReportService.create_employee_bar_chart(data['employee_wise'])
+            if emp_chart_buffer:
+                img = Image(emp_chart_buffer, width=6*inch, height=4*inch)
+                elements.append(img)
+                elements.append(Spacer(1, 10))
+
+            emp_data = [['Employee', 'Total', 'Completed', 'Pending', 'Overdue', 'Time (hrs)']]
+            for emp in data['employee_wise'][:15]:
+                name = f"{emp.get('assigned_to__first_name', '') or ''} {emp.get('assigned_to__last_name', '') or ''}".strip()
+                if not name:
+                    name = emp.get('assigned_to__email', 'Unknown')
+                time_hrs = round(emp.get('total_time', 0) / 60, 1) if emp.get('total_time') else 0
+                emp_data.append([
+                    name[:25],
+                    str(emp.get('total', 0)),
+                    str(emp.get('completed', 0)),
+                    str(emp.get('pending', 0)),
+                    str(emp.get('overdue', 0)),
+                    str(time_hrs)
+                ])
+
+            emp_table = Table(emp_data, colWidths=[2*inch, 0.7*inch, 0.9*inch, 0.8*inch, 0.8*inch, 0.9*inch])
+            emp_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3f51b5')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTSIZE', (0, 1), (-1, -1), 9),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')]),
+            ]))
+            elements.append(emp_table)
+            elements.append(Spacer(1, 20))
+
+        # Task Details Table (limited to 50)
+        tasks = data.get('tasks', [])
+        if tasks:
+            elements.append(PageBreak())
+            elements.append(Paragraph(f"Task Details ({len(tasks)} records)", styles['SectionTitle']))
+
+            task_data = [['Client', 'Work Type', 'Period', 'Due Date', 'Status', 'Assigned To']]
+            for task in tasks[:50]:
+                assigned = f"{task.get('assigned_to__first_name', '') or ''} {task.get('assigned_to__last_name', '') or ''}".strip()
+                if not assigned:
+                    assigned = task.get('assigned_to__username', 'Unassigned')
+                due_date = task.get('due_date')
+                if due_date:
+                    due_date_str = due_date.strftime('%d-%b-%Y') if hasattr(due_date, 'strftime') else str(due_date)
+                else:
+                    due_date_str = 'N/A'
+                status = task.get('status', 'N/A').replace('_', ' ')
+
+                task_data.append([
+                    (task.get('client_work__client__client_name', 'Unknown') or 'Unknown')[:20],
+                    (task.get('client_work__work_type__work_name', 'Unknown') or 'Unknown')[:18],
+                    (task.get('period_label', '') or '')[:12],
+                    due_date_str,
+                    status[:12],
+                    assigned[:12]
+                ])
+
+            task_table = Table(task_data, colWidths=[1.4*inch, 1.3*inch, 0.9*inch, 0.9*inch, 0.9*inch, 1*inch])
+            task_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3f51b5')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTSIZE', (0, 1), (-1, -1), 7),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')]),
+            ]))
+            elements.append(task_table)
+
+            if len(tasks) > 50:
+                elements.append(Spacer(1, 10))
+                elements.append(Paragraph(
+                    f"Showing first 50 of {len(tasks)} records. Export to CSV for full data.",
+                    styles['SubTitle']
+                ))
+
+        # Build PDF
+        doc.build(elements)
+        buffer.seek(0)
+
+        return buffer

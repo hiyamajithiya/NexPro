@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -16,6 +16,9 @@ import {
   Menu,
   MenuItem,
   Chip,
+  Badge,
+  Paper,
+  CircularProgress,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -32,8 +35,16 @@ import {
   Badge as BadgeIcon,
   AdminPanelSettings as AdminPanelSettingsIcon,
   Help as HelpIcon,
+  Security as SecurityIcon,
+  Notifications as NotificationsIcon,
+  NotificationsActive as NotificationsActiveIcon,
+  CheckCircle as CheckCircleIcon,
+  Warning as WarningIcon,
+  Error as ErrorIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
+import { notificationsAPI } from '../services/api';
 
 const drawerWidth = 240;
 
@@ -47,6 +58,7 @@ const allMenuItems = [
   { text: 'Work Types', icon: <WorkIcon />, path: '/dashboard/work-types', roles: ['ADMIN', 'PARTNER'] },
   { text: 'Employees', icon: <BadgeIcon />, path: '/dashboard/employees', roles: ['ADMIN', 'PARTNER'] },
   { text: 'Templates', icon: <EmailIcon />, path: '/dashboard/templates', roles: ['ADMIN', 'PARTNER'] },
+  { text: 'Credentials', icon: <SecurityIcon />, path: '/dashboard/credentials', roles: ['ADMIN', 'PARTNER'] },
   { text: 'Settings', icon: <SettingsIcon />, path: '/dashboard/settings', roles: ['ADMIN', 'PARTNER'] },
   { text: 'Help & Guide', icon: <HelpIcon />, path: '/dashboard/help', roles: ['ADMIN', 'PARTNER', 'MANAGER', 'STAFF'] },
 ];
@@ -71,9 +83,45 @@ const getRoleColor = (role) => {
   return colors[role] || 'default';
 };
 
+// Helper function to get notification icon based on type
+const getNotificationIcon = (type) => {
+  switch (type) {
+    case 'TASK_COMPLETED':
+      return <CheckCircleIcon sx={{ color: '#10b981', fontSize: 20 }} />;
+    case 'TASK_OVERDUE':
+      return <ErrorIcon sx={{ color: '#ef4444', fontSize: 20 }} />;
+    case 'TASK_ASSIGNED':
+      return <InfoIcon sx={{ color: '#3b82f6', fontSize: 20 }} />;
+    case 'REMINDER':
+      return <WarningIcon sx={{ color: '#f59e0b', fontSize: 20 }} />;
+    default:
+      return <NotificationsIcon sx={{ color: '#6366f1', fontSize: 20 }} />;
+  }
+};
+
+// Helper function to format relative time
+const getRelativeTime = (dateString) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+};
+
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
+  const [notificationAnchorEl, setNotificationAnchorEl] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, isPlatformAdmin } = useAuth();
@@ -82,6 +130,23 @@ export default function Layout() {
   const menuItems = allMenuItems.filter(item => {
     return item.roles.includes(user?.role);
   });
+
+  // Fetch notifications on mount and periodically
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 60000); // Refresh every minute
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchNotifications = async () => {
+    try {
+      const response = await notificationsAPI.getRecent();
+      setNotifications(response.data.notifications || []);
+      setUnreadCount(response.data.unread_count || 0);
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
+    }
+  };
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -95,9 +160,46 @@ export default function Layout() {
     setAnchorEl(null);
   };
 
+  const handleNotificationMenuOpen = (event) => {
+    setNotificationAnchorEl(event.currentTarget);
+  };
+
+  const handleNotificationMenuClose = () => {
+    setNotificationAnchorEl(null);
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await notificationsAPI.markAllRead();
+      setUnreadCount(0);
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+    } catch (error) {
+      console.error('Failed to mark all as read:', error);
+    }
+  };
+
+  const handleNotificationClick = async (notification) => {
+    try {
+      if (!notification.is_read) {
+        await notificationsAPI.markRead(notification.id);
+        setUnreadCount(prev => Math.max(0, prev - 1));
+        setNotifications(prev =>
+          prev.map(n => n.id === notification.id ? { ...n, is_read: true } : n)
+        );
+      }
+      handleNotificationMenuClose();
+      // Navigate to tasks if it's a task-related notification
+      if (notification.work_instance_details) {
+        navigate('/dashboard/tasks');
+      }
+    } catch (error) {
+      console.error('Failed to mark notification as read:', error);
+    }
+  };
+
   const handleLogout = () => {
     logout();
-    navigate('/home');
+    navigate('/login');
   };
 
   const drawer = (
@@ -249,6 +351,124 @@ export default function Layout() {
               }}
             />
           </Box>
+
+          {/* Notifications Bell */}
+          <IconButton
+            color="inherit"
+            onClick={handleNotificationMenuOpen}
+            sx={{ mr: 1 }}
+          >
+            <Badge badgeContent={unreadCount} color="error">
+              {unreadCount > 0 ? <NotificationsActiveIcon /> : <NotificationsIcon />}
+            </Badge>
+          </IconButton>
+
+          {/* Notifications Dropdown */}
+          <Menu
+            anchorEl={notificationAnchorEl}
+            open={Boolean(notificationAnchorEl)}
+            onClose={handleNotificationMenuClose}
+            PaperProps={{
+              sx: {
+                width: 380,
+                maxHeight: 480,
+                borderRadius: 2,
+                mt: 1,
+              }
+            }}
+            transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+            anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+          >
+            <Box sx={{ p: 2, borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                Notifications
+              </Typography>
+              {unreadCount > 0 && (
+                <Chip
+                  label="Mark all read"
+                  size="small"
+                  onClick={handleMarkAllRead}
+                  sx={{ cursor: 'pointer', '&:hover': { bgcolor: '#e5e7eb' } }}
+                />
+              )}
+            </Box>
+
+            {notifications.length === 0 ? (
+              <Box sx={{ p: 4, textAlign: 'center' }}>
+                <NotificationsIcon sx={{ fontSize: 48, color: '#d1d5db', mb: 1 }} />
+                <Typography color="text.secondary">
+                  No notifications yet
+                </Typography>
+              </Box>
+            ) : (
+              notifications.map((notification) => (
+                <MenuItem
+                  key={notification.id}
+                  onClick={() => handleNotificationClick(notification)}
+                  sx={{
+                    py: 1.5,
+                    px: 2,
+                    borderBottom: '1px solid #f3f4f6',
+                    bgcolor: notification.is_read ? 'transparent' : 'rgba(99, 102, 241, 0.05)',
+                    '&:hover': {
+                      bgcolor: notification.is_read ? '#f9fafb' : 'rgba(99, 102, 241, 0.1)',
+                    },
+                  }}
+                >
+                  <Box sx={{ display: 'flex', gap: 1.5, width: '100%' }}>
+                    <Box sx={{ pt: 0.5 }}>
+                      {getNotificationIcon(notification.notification_type)}
+                    </Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontWeight: notification.is_read ? 400 : 600,
+                          whiteSpace: 'normal',
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {notification.title}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{
+                          display: 'block',
+                          whiteSpace: 'normal',
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {notification.message}
+                      </Typography>
+                      {notification.work_instance_details && (
+                        <Chip
+                          label={notification.work_instance_details.work_type}
+                          size="small"
+                          sx={{ mt: 0.5, height: 20, fontSize: '0.7rem' }}
+                        />
+                      )}
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                        {getRelativeTime(notification.created_at)}
+                      </Typography>
+                    </Box>
+                    {!notification.is_read && (
+                      <Box
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          bgcolor: '#6366f1',
+                          flexShrink: 0,
+                          mt: 0.5,
+                        }}
+                      />
+                    )}
+                  </Box>
+                </MenuItem>
+              ))
+            )}
+          </Menu>
 
           <IconButton
             size="large"

@@ -5,7 +5,7 @@ from .models import (
     Organization, OrganizationEmail, Subscription,
     Client, WorkType, WorkTypeAssignment, ClientWorkMapping, WorkInstance,
     EmailTemplate, ReminderRule, ReminderInstance, Notification, TaskDocument,
-    ReportConfiguration, PlatformSettings, SubscriptionPlan
+    ReportConfiguration, PlatformSettings, SubscriptionPlan, CredentialVault
 )
 from .services.plan_service import PlanService
 
@@ -622,3 +622,61 @@ class SubscriptionPlanSerializer(serializers.ModelSerializer):
     def get_organizations_count(self, obj):
         """Count organizations using this plan"""
         return Organization.objects.filter(plan=obj.code).count()
+
+
+# =============================================================================
+# CREDENTIAL VAULT SERIALIZER
+# =============================================================================
+
+class CredentialVaultSerializer(TenantModelSerializer):
+    """Serializer for CredentialVault model - secure client portal credentials"""
+    client_name = serializers.CharField(source='client.client_name', read_only=True)
+    client_code = serializers.CharField(source='client.client_code', read_only=True)
+    portal_type_display = serializers.CharField(source='get_portal_type_display', read_only=True)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    has_password = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CredentialVault
+        fields = [
+            'id', 'client', 'client_name', 'client_code',
+            'portal_type', 'portal_type_display', 'portal_name', 'login_url',
+            'username', 'password', 'has_password', 'extra_info',
+            'last_updated', 'created_at'
+        ]
+        read_only_fields = ['organization', 'last_updated', 'created_at']
+
+    def get_has_password(self, obj):
+        """Return whether password is set (not the actual password)"""
+        return bool(obj.password_enc)
+
+    def create(self, validated_data):
+        password = validated_data.pop('password', None)
+        instance = super().create(validated_data)
+        if password:
+            instance.encrypt_password(password)
+            instance.save()
+        return instance
+
+    def update(self, validated_data, instance):
+        password = validated_data.pop('password', None)
+        instance = super().update(instance, validated_data)
+        if password:
+            instance.encrypt_password(password)
+            instance.save()
+        return instance
+
+
+class CredentialVaultDecryptedSerializer(CredentialVaultSerializer):
+    """Serializer that includes decrypted password - use with caution"""
+    decrypted_password = serializers.SerializerMethodField()
+
+    class Meta(CredentialVaultSerializer.Meta):
+        fields = CredentialVaultSerializer.Meta.fields + ['decrypted_password']
+
+    def get_decrypted_password(self, obj):
+        """Decrypt and return the password"""
+        try:
+            return obj.decrypt_password()
+        except Exception:
+            return None

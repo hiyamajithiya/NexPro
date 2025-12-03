@@ -28,7 +28,6 @@ import {
   AdminPanelSettings,
   TrendingUp,
   AccessTime,
-  LocalOffer,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 
@@ -39,8 +38,7 @@ const menuItems = [
   { text: 'Organizations', icon: <BusinessIcon />, path: '/admin/organizations' },
   { text: 'Trial Management', icon: <AccessTime />, path: '/admin/trials' },
   { text: 'All Users', icon: <PeopleIcon />, path: '/admin/users' },
-  { text: 'Subscriptions', icon: <TrendingUp />, path: '/admin/subscriptions' },
-  { text: 'Manage Plans', icon: <LocalOffer />, path: '/admin/plans' },
+  { text: 'Subscriptions & Plans', icon: <TrendingUp />, path: '/admin/subscriptions' },
   { text: 'Platform Settings', icon: <SettingsIcon />, path: '/admin/settings' },
 ];
 
@@ -65,7 +63,7 @@ export default function SuperAdminLayout() {
 
   const handleLogout = () => {
     logout();
-    navigate('/home');
+    navigate('/login');
   };
 
   const drawer = (

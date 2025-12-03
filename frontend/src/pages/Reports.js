@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Container,
-  Paper,
   Typography,
   Box,
   Grid,
@@ -33,6 +32,8 @@ import {
   FormControlLabel,
   Switch,
   Snackbar,
+  ButtonGroup,
+  Tooltip as MuiTooltip,
 } from '@mui/material';
 import {
   Download as DownloadIcon,
@@ -44,11 +45,18 @@ import {
   Delete as DeleteIcon,
   Send as SendIcon,
   PictureAsPdf as PdfIcon,
+  Print as PrintIcon,
+  TableChart as ExcelIcon,
+  CalendarToday as CalendarIcon,
+  TrendingUp as TrendingUpIcon,
+  People as PeopleIcon,
+  Business as BusinessIcon,
+  Assignment as AssignmentIcon,
 } from '@mui/icons-material';
-import { DatePicker, TimePicker } from '@mui/x-date-pickers';
+import { DatePicker } from '@mui/x-date-pickers';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { format, parse } from 'date-fns';
+import { format, subDays, startOfMonth, endOfMonth, startOfQuarter, endOfQuarter, startOfYear, subMonths } from 'date-fns';
 import { tasksAPI, clientsAPI, workTypesAPI, usersAPI, reportConfigurationsAPI } from '../services/api';
 import { DataGrid } from '@mui/x-data-grid';
 import {
@@ -87,6 +95,19 @@ export default function Reports() {
   const [reportData, setReportData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const reportRef = useRef(null);
+
+  // Quick date range presets
+  const datePresets = [
+    { label: 'Today', getValue: () => ({ start: new Date(), end: new Date() }) },
+    { label: 'Last 7 Days', getValue: () => ({ start: subDays(new Date(), 7), end: new Date() }) },
+    { label: 'Last 30 Days', getValue: () => ({ start: subDays(new Date(), 30), end: new Date() }) },
+    { label: 'This Month', getValue: () => ({ start: startOfMonth(new Date()), end: endOfMonth(new Date()) }) },
+    { label: 'Last Month', getValue: () => ({ start: startOfMonth(subMonths(new Date(), 1)), end: endOfMonth(subMonths(new Date(), 1)) }) },
+    { label: 'This Quarter', getValue: () => ({ start: startOfQuarter(new Date()), end: endOfQuarter(new Date()) }) },
+    { label: 'This Year', getValue: () => ({ start: startOfYear(new Date()), end: new Date() }) },
+  ];
 
   // Scheduled report states
   const [scheduledReports, setScheduledReports] = useState([]);
@@ -333,6 +354,11 @@ export default function Reports() {
   };
 
   const generateClientSummary = (tasks) => {
+    const total = tasks.length;
+    const completed = tasks.filter(t => t.status === 'COMPLETED').length;
+    const overdue = tasks.filter(t => t.status === 'OVERDUE').length;
+    const pending = tasks.filter(t => ['NOT_STARTED', 'STARTED', 'IN_PROGRESS'].includes(t.status)).length;
+
     const clientMap = {};
     tasks.forEach(task => {
       const clientName = task.client_name;
@@ -355,10 +381,22 @@ export default function Reports() {
       }))
       .slice(0, 10);
 
-    return { clientMap, chartData, tasks };
+    const uniqueClients = Object.keys(clientMap).length;
+
+    return {
+      summary: { total, completed, overdue, pending, uniqueClients },
+      clientMap,
+      chartData,
+      tasks
+    };
   };
 
   const generateWorkTypeSummary = (tasks) => {
+    const total = tasks.length;
+    const completed = tasks.filter(t => t.status === 'COMPLETED').length;
+    const overdue = tasks.filter(t => t.status === 'OVERDUE').length;
+    const pending = tasks.filter(t => ['NOT_STARTED', 'STARTED', 'IN_PROGRESS'].includes(t.status)).length;
+
     const workTypeMap = {};
     tasks.forEach(task => {
       const workType = task.work_type_name;
@@ -379,10 +417,22 @@ export default function Reports() {
       overdue: data.overdue,
     }));
 
-    return { workTypeMap, chartData, tasks };
+    const uniqueWorkTypes = Object.keys(workTypeMap).length;
+
+    return {
+      summary: { total, completed, overdue, pending, uniqueWorkTypes },
+      workTypeMap,
+      chartData,
+      tasks
+    };
   };
 
   const generateStaffProductivity = (tasks) => {
+    const total = tasks.length;
+    const completed = tasks.filter(t => t.status === 'COMPLETED').length;
+    const overdue = tasks.filter(t => t.status === 'OVERDUE').length;
+    const pending = tasks.filter(t => ['NOT_STARTED', 'STARTED', 'IN_PROGRESS'].includes(t.status)).length;
+
     const staffMap = {};
     tasks.forEach(task => {
       const staffName = task.assigned_to_name || 'Unassigned';
@@ -403,10 +453,23 @@ export default function Reports() {
       overdue: data.overdue,
     }));
 
-    return { staffMap, chartData, tasks };
+    const uniqueStaff = Object.keys(staffMap).filter(s => s !== 'Unassigned').length;
+    const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    return {
+      summary: { total, completed, overdue, pending, uniqueStaff, completionRate },
+      staffMap,
+      chartData,
+      tasks
+    };
   };
 
   const generateStatusAnalysis = (tasks) => {
+    const total = tasks.length;
+    const completed = tasks.filter(t => t.status === 'COMPLETED').length;
+    const overdue = tasks.filter(t => t.status === 'OVERDUE').length;
+    const pending = tasks.filter(t => ['NOT_STARTED', 'STARTED', 'IN_PROGRESS'].includes(t.status)).length;
+
     const statusMap = {
       'NOT_STARTED': 0,
       'STARTED': 0,
@@ -424,7 +487,14 @@ export default function Reports() {
       value,
     }));
 
-    return { statusMap, chartData, tasks };
+    const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    return {
+      summary: { total, completed, overdue, pending, completionRate },
+      statusMap,
+      chartData,
+      tasks
+    };
   };
 
   const exportToCSV = () => {
@@ -451,6 +521,177 @@ export default function Reports() {
     a.href = url;
     a.download = `report_${reportType}_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`;
     a.click();
+  };
+
+  // Export to Excel (XLSX format using CSV with proper formatting)
+  const exportToExcel = () => {
+    if (!reportData || !reportData.tasks) return;
+
+    // Create Excel-compatible CSV with UTF-8 BOM for proper encoding
+    const BOM = '\uFEFF';
+    const headers = ['Client', 'Work Type', 'Period', 'Due Date', 'Status', 'Assigned To', 'Client Code'];
+    const rows = reportData.tasks.map(task => [
+      `"${(task.client_name || '').replace(/"/g, '""')}"`,
+      `"${(task.work_type_name || '').replace(/"/g, '""')}"`,
+      `"${(task.period_label || '').replace(/"/g, '""')}"`,
+      format(new Date(task.due_date), 'dd-MMM-yyyy'),
+      task.status.replace(/_/g, ' '),
+      `"${(task.assigned_to_name || 'Unassigned').replace(/"/g, '""')}"`,
+      task.client_code || '',
+    ]);
+
+    const csvContent = BOM + [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\r\n');
+
+    const blob = new Blob([csvContent], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `report_${reportType}_${format(new Date(), 'yyyyMMdd_HHmmss')}.xls`;
+    a.click();
+    showSnackbar('Excel file downloaded successfully', 'success');
+  };
+
+  // Export to PDF
+  const exportToPDF = async () => {
+    setPdfLoading(true);
+    try {
+      const params = {
+        report_type: reportType,
+        start_date: filters.startDate ? format(filters.startDate, 'yyyy-MM-dd') : null,
+        end_date: filters.endDate ? format(filters.endDate, 'yyyy-MM-dd') : null,
+        client: filters.client,
+        work_type: filters.workType,
+        status: filters.status,
+        assigned_to: filters.assignedTo,
+      };
+
+      const response = await reportConfigurationsAPI.generateAdHocPdf(params);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `report_${reportType}_${format(new Date(), 'yyyyMMdd_HHmmss')}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      showSnackbar('PDF downloaded successfully', 'success');
+    } catch (error) {
+      console.error('Failed to generate PDF:', error);
+      showSnackbar('Failed to generate PDF. Please try again.', 'error');
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  // Print report
+  const handlePrint = () => {
+    if (!reportData) {
+      showSnackbar('Please generate a report first', 'warning');
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    const reportTypeLabels = {
+      'TASK_SUMMARY': 'Task Summary Report',
+      'CLIENT_SUMMARY': 'Client Summary Report',
+      'WORK_TYPE_SUMMARY': 'Work Type Summary Report',
+      'STAFF_PRODUCTIVITY': 'Staff Productivity Report',
+      'STATUS_ANALYSIS': 'Status Analysis Report',
+    };
+
+    const title = reportTypeLabels[reportType] || 'Report';
+    const dateRange = filters.startDate && filters.endDate
+      ? `${format(filters.startDate, 'dd-MMM-yyyy')} to ${format(filters.endDate, 'dd-MMM-yyyy')}`
+      : 'All Time';
+
+    // Generate summary HTML
+    let summaryHtml = '';
+    if (reportData.summary) {
+      summaryHtml = `
+        <div class="summary-cards">
+          <div class="card total"><span class="label">Total Tasks</span><span class="value">${reportData.summary.total}</span></div>
+          <div class="card completed"><span class="label">Completed</span><span class="value">${reportData.summary.completed}</span></div>
+          <div class="card pending"><span class="label">Pending</span><span class="value">${reportData.summary.pending}</span></div>
+          <div class="card overdue"><span class="label">Overdue</span><span class="value">${reportData.summary.overdue}</span></div>
+        </div>
+      `;
+    }
+
+    // Generate table HTML
+    const tableRows = reportData.tasks.slice(0, 100).map(task => `
+      <tr>
+        <td>${task.client_name || 'N/A'}</td>
+        <td>${task.work_type_name || 'N/A'}</td>
+        <td>${task.period_label || 'N/A'}</td>
+        <td>${format(new Date(task.due_date), 'dd-MMM-yyyy')}</td>
+        <td><span class="status-${task.status.toLowerCase()}">${task.status.replace(/_/g, ' ')}</span></td>
+        <td>${task.assigned_to_name || 'Unassigned'}</td>
+      </tr>
+    `).join('');
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${title}</title>
+        <style>
+          body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; color: #333; }
+          h1 { color: #6366f1; margin-bottom: 5px; }
+          .subtitle { color: #666; margin-bottom: 20px; }
+          .summary-cards { display: flex; gap: 15px; margin-bottom: 25px; flex-wrap: wrap; }
+          .card { padding: 15px 25px; border-radius: 10px; color: white; text-align: center; min-width: 120px; }
+          .card .label { display: block; font-size: 12px; opacity: 0.9; }
+          .card .value { display: block; font-size: 28px; font-weight: bold; margin-top: 5px; }
+          .card.total { background: linear-gradient(135deg, #667eea, #764ba2); }
+          .card.completed { background: linear-gradient(135deg, #11998e, #38ef7d); }
+          .card.pending { background: linear-gradient(135deg, #f093fb, #f5576c); }
+          .card.overdue { background: linear-gradient(135deg, #eb3349, #f45c43); }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th { background: #6366f1; color: white; padding: 12px 8px; text-align: left; }
+          td { padding: 10px 8px; border-bottom: 1px solid #eee; }
+          tr:nth-child(even) { background: #f9f9f9; }
+          .status-completed { background: #10b981; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px; }
+          .status-overdue { background: #ef4444; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px; }
+          .status-in_progress, .status-started { background: #f59e0b; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px; }
+          .status-not_started { background: #9ca3af; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px; }
+          .footer { margin-top: 30px; text-align: center; color: #999; font-size: 12px; }
+          @media print { body { margin: 0; } }
+        </style>
+      </head>
+      <body>
+        <h1>${title}</h1>
+        <p class="subtitle">Period: ${dateRange} | Generated: ${format(new Date(), 'dd-MMM-yyyy HH:mm')}</p>
+        ${summaryHtml}
+        <table>
+          <thead>
+            <tr>
+              <th>Client</th>
+              <th>Work Type</th>
+              <th>Period</th>
+              <th>Due Date</th>
+              <th>Status</th>
+              <th>Assigned To</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+        ${reportData.tasks.length > 100 ? `<p class="footer">Showing first 100 of ${reportData.tasks.length} records</p>` : ''}
+        <p class="footer">NexPro Practice Management System</p>
+        <script>window.print(); window.close();</script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  // Apply date preset
+  const applyDatePreset = (preset) => {
+    const { start, end } = preset.getValue();
+    setFilters(prev => ({ ...prev, startDate: start, endDate: end }));
   };
 
   const renderChart = () => {
@@ -613,6 +854,30 @@ export default function Reports() {
                 <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
                   Report Configuration
                 </Typography>
+                {/* Quick Date Presets */}
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                    Quick Date Range:
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {datePresets.map((preset) => (
+                      <Chip
+                        key={preset.label}
+                        label={preset.label}
+                        onClick={() => applyDatePreset(preset)}
+                        variant="outlined"
+                        color="primary"
+                        size="small"
+                        icon={<CalendarIcon sx={{ fontSize: 16 }} />}
+                        sx={{
+                          cursor: 'pointer',
+                          '&:hover': { bgcolor: 'primary.light', color: 'white' }
+                        }}
+                      />
+                    ))}
+                  </Box>
+                </Box>
+
                 <Grid container spacing={2}>
             <Grid item xs={12} md={4}>
               <FormControl fullWidth>
@@ -636,7 +901,7 @@ export default function Reports() {
                 label="Start Date"
                 value={filters.startDate}
                 onChange={(date) => handleFilterChange('startDate', date)}
-                renderInput={(params) => <TextField {...params} fullWidth />}
+                slotProps={{ textField: { fullWidth: true } }}
               />
             </Grid>
 
@@ -645,7 +910,7 @@ export default function Reports() {
                 label="End Date"
                 value={filters.endDate}
                 onChange={(date) => handleFilterChange('endDate', date)}
-                renderInput={(params) => <TextField {...params} fullWidth />}
+                slotProps={{ textField: { fullWidth: true } }}
               />
             </Grid>
 
@@ -722,23 +987,49 @@ export default function Reports() {
             </Grid>
 
             <Grid item xs={12}>
-              <Box display="flex" gap={2}>
+              <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
                 <Button
                   variant="contained"
-                  startIcon={<RefreshIcon />}
+                  startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
                   onClick={generateReport}
                   disabled={loading}
+                  sx={{ minWidth: 160 }}
                 >
-                  Generate Report
+                  {loading ? 'Generating...' : 'Generate Report'}
                 </Button>
                 {reportData && (
-                  <Button
-                    variant="outlined"
-                    startIcon={<DownloadIcon />}
-                    onClick={exportToCSV}
-                  >
-                    Export to CSV
-                  </Button>
+                  <>
+                    <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+                    <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+                      Export:
+                    </Typography>
+                    <ButtonGroup variant="outlined" size="small">
+                      <MuiTooltip title="Export to CSV">
+                        <Button onClick={exportToCSV} startIcon={<DownloadIcon />}>
+                          CSV
+                        </Button>
+                      </MuiTooltip>
+                      <MuiTooltip title="Export to Excel">
+                        <Button onClick={exportToExcel} startIcon={<ExcelIcon />}>
+                          Excel
+                        </Button>
+                      </MuiTooltip>
+                      <MuiTooltip title="Download PDF Report">
+                        <Button
+                          onClick={exportToPDF}
+                          startIcon={pdfLoading ? <CircularProgress size={16} /> : <PdfIcon />}
+                          disabled={pdfLoading}
+                        >
+                          PDF
+                        </Button>
+                      </MuiTooltip>
+                      <MuiTooltip title="Print Report">
+                        <Button onClick={handlePrint} startIcon={<PrintIcon />}>
+                          Print
+                        </Button>
+                      </MuiTooltip>
+                    </ButtonGroup>
+                  </>
                 )}
               </Box>
             </Grid>
@@ -756,95 +1047,162 @@ export default function Reports() {
 
         {reportData && !loading && (
           <>
-            {/* Summary Cards */}
+            {/* Summary Cards - Universal for all report types */}
             {reportData.summary && (
               <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid item xs={12} md={3}>
+                <Grid item xs={6} sm={4} md={2}>
                   <Card sx={{
                     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                     color: 'white',
                     borderRadius: 3,
                     boxShadow: 3,
                     transition: 'transform 0.2s, box-shadow 0.2s',
-                    '&:hover': {
-                      transform: 'translateY(-4px)',
-                      boxShadow: 6,
-                    },
+                    '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 },
                   }}>
-                    <CardContent>
-                      <Typography sx={{ opacity: 0.9, mb: 1 }}>
-                        Total Tasks
-                      </Typography>
-                      <Typography variant="h4" sx={{ fontWeight: 600 }}>{reportData.summary.total}</Typography>
+                    <CardContent sx={{ py: 2, px: 2, '&:last-child': { pb: 2 } }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                        <AssignmentIcon sx={{ fontSize: 18, opacity: 0.9 }} />
+                        <Typography variant="caption" sx={{ opacity: 0.9 }}>Total</Typography>
+                      </Box>
+                      <Typography variant="h5" sx={{ fontWeight: 700 }}>{reportData.summary.total}</Typography>
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12} md={3}>
+                <Grid item xs={6} sm={4} md={2}>
                   <Card sx={{
                     background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
                     color: 'white',
                     borderRadius: 3,
                     boxShadow: 3,
                     transition: 'transform 0.2s, box-shadow 0.2s',
-                    '&:hover': {
-                      transform: 'translateY(-4px)',
-                      boxShadow: 6,
-                    },
+                    '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 },
                   }}>
-                    <CardContent>
-                      <Typography sx={{ opacity: 0.9, mb: 1 }}>
-                        Completed
-                      </Typography>
-                      <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                        {reportData.summary.completed}
-                      </Typography>
+                    <CardContent sx={{ py: 2, px: 2, '&:last-child': { pb: 2 } }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                        <TrendingUpIcon sx={{ fontSize: 18, opacity: 0.9 }} />
+                        <Typography variant="caption" sx={{ opacity: 0.9 }}>Completed</Typography>
+                      </Box>
+                      <Typography variant="h5" sx={{ fontWeight: 700 }}>{reportData.summary.completed}</Typography>
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12} md={3}>
+                <Grid item xs={6} sm={4} md={2}>
                   <Card sx={{
-                    background: 'linear-gradient(135deg, #ee9ca7 0%, #ffdde1 100%)',
+                    background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
                     color: 'white',
                     borderRadius: 3,
                     boxShadow: 3,
                     transition: 'transform 0.2s, box-shadow 0.2s',
-                    '&:hover': {
-                      transform: 'translateY(-4px)',
-                      boxShadow: 6,
-                    },
+                    '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 },
                   }}>
-                    <CardContent>
-                      <Typography sx={{ opacity: 0.9, mb: 1 }}>
-                        Pending
-                      </Typography>
-                      <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                        {reportData.summary.pending}
-                      </Typography>
+                    <CardContent sx={{ py: 2, px: 2, '&:last-child': { pb: 2 } }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                        <CalendarIcon sx={{ fontSize: 18, opacity: 0.9 }} />
+                        <Typography variant="caption" sx={{ opacity: 0.9 }}>Pending</Typography>
+                      </Box>
+                      <Typography variant="h5" sx={{ fontWeight: 700 }}>{reportData.summary.pending}</Typography>
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12} md={3}>
+                <Grid item xs={6} sm={4} md={2}>
                   <Card sx={{
                     background: 'linear-gradient(135deg, #eb3349 0%, #f45c43 100%)',
                     color: 'white',
                     borderRadius: 3,
                     boxShadow: 3,
                     transition: 'transform 0.2s, box-shadow 0.2s',
-                    '&:hover': {
-                      transform: 'translateY(-4px)',
-                      boxShadow: 6,
-                    },
+                    '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 },
                   }}>
-                    <CardContent>
-                      <Typography sx={{ opacity: 0.9, mb: 1 }}>
-                        Overdue
-                      </Typography>
-                      <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                        {reportData.summary.overdue}
-                      </Typography>
+                    <CardContent sx={{ py: 2, px: 2, '&:last-child': { pb: 2 } }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                        <ScheduleIcon sx={{ fontSize: 18, opacity: 0.9 }} />
+                        <Typography variant="caption" sx={{ opacity: 0.9 }}>Overdue</Typography>
+                      </Box>
+                      <Typography variant="h5" sx={{ fontWeight: 700 }}>{reportData.summary.overdue}</Typography>
                     </CardContent>
                   </Card>
                 </Grid>
+                {/* Contextual 5th card based on report type */}
+                {reportType === 'CLIENT_SUMMARY' && reportData.summary.uniqueClients && (
+                  <Grid item xs={6} sm={4} md={2}>
+                    <Card sx={{
+                      background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                      color: 'white',
+                      borderRadius: 3,
+                      boxShadow: 3,
+                      transition: 'transform 0.2s, box-shadow 0.2s',
+                      '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 },
+                    }}>
+                      <CardContent sx={{ py: 2, px: 2, '&:last-child': { pb: 2 } }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                          <BusinessIcon sx={{ fontSize: 18, opacity: 0.9 }} />
+                          <Typography variant="caption" sx={{ opacity: 0.9 }}>Clients</Typography>
+                        </Box>
+                        <Typography variant="h5" sx={{ fontWeight: 700 }}>{reportData.summary.uniqueClients}</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                )}
+                {reportType === 'WORK_TYPE_SUMMARY' && reportData.summary.uniqueWorkTypes && (
+                  <Grid item xs={6} sm={4} md={2}>
+                    <Card sx={{
+                      background: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)',
+                      color: 'white',
+                      borderRadius: 3,
+                      boxShadow: 3,
+                      transition: 'transform 0.2s, box-shadow 0.2s',
+                      '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 },
+                    }}>
+                      <CardContent sx={{ py: 2, px: 2, '&:last-child': { pb: 2 } }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                          <AssessmentIcon sx={{ fontSize: 18, opacity: 0.9 }} />
+                          <Typography variant="caption" sx={{ opacity: 0.9 }}>Work Types</Typography>
+                        </Box>
+                        <Typography variant="h5" sx={{ fontWeight: 700 }}>{reportData.summary.uniqueWorkTypes}</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                )}
+                {reportType === 'STAFF_PRODUCTIVITY' && reportData.summary.uniqueStaff !== undefined && (
+                  <Grid item xs={6} sm={4} md={2}>
+                    <Card sx={{
+                      background: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
+                      color: 'white',
+                      borderRadius: 3,
+                      boxShadow: 3,
+                      transition: 'transform 0.2s, box-shadow 0.2s',
+                      '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 },
+                    }}>
+                      <CardContent sx={{ py: 2, px: 2, '&:last-child': { pb: 2 } }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                          <PeopleIcon sx={{ fontSize: 18, opacity: 0.9 }} />
+                          <Typography variant="caption" sx={{ opacity: 0.9 }}>Staff</Typography>
+                        </Box>
+                        <Typography variant="h5" sx={{ fontWeight: 700 }}>{reportData.summary.uniqueStaff}</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                )}
+                {(reportType === 'STATUS_ANALYSIS' || reportType === 'STAFF_PRODUCTIVITY') && reportData.summary.completionRate !== undefined && (
+                  <Grid item xs={6} sm={4} md={2}>
+                    <Card sx={{
+                      background: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
+                      color: 'white',
+                      borderRadius: 3,
+                      boxShadow: 3,
+                      transition: 'transform 0.2s, box-shadow 0.2s',
+                      '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 },
+                    }}>
+                      <CardContent sx={{ py: 2, px: 2, '&:last-child': { pb: 2 } }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                          <TrendingUpIcon sx={{ fontSize: 18, opacity: 0.9 }} />
+                          <Typography variant="caption" sx={{ opacity: 0.9 }}>Completion</Typography>
+                        </Box>
+                        <Typography variant="h5" sx={{ fontWeight: 700 }}>{reportData.summary.completionRate}%</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                )}
               </Grid>
             )}
 

@@ -23,6 +23,7 @@ import Settings from './pages/Settings';
 import Employees from './pages/Employees';
 import Profile from './pages/Profile';
 import HelpGuide from './pages/HelpGuide';
+import CredentialVault from './pages/CredentialVault';
 import Layout from './components/Layout';
 import SuperAdminLayout from './components/SuperAdminLayout';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
@@ -30,7 +31,6 @@ import Organizations from './pages/admin/Organizations';
 import TrialManagement from './pages/admin/TrialManagement';
 import AllUsers from './pages/admin/AllUsers';
 import Subscriptions from './pages/admin/Subscriptions';
-import ManagePlans from './pages/admin/ManagePlans';
 import PlatformSettings from './pages/admin/PlatformSettings';
 import LandingPage from './pages/LandingPage';
 
@@ -214,6 +214,7 @@ function AppRoutes() {
           <Route path="work-types" element={<WorkTypes />} />
           <Route path="employees" element={<Employees />} />
           <Route path="templates" element={<Templates />} />
+          <Route path="credentials" element={<CredentialVault />} />
           <Route path="settings" element={<Settings />} />
           <Route path="profile" element={<Profile />} />
           <Route path="help" element={<HelpGuide />} />
@@ -245,7 +246,7 @@ function AppRoutes() {
           <Route path="trials" element={<TrialManagement />} />
           <Route path="users" element={<AllUsers />} />
           <Route path="subscriptions" element={<Subscriptions />} />
-          <Route path="plans" element={<ManagePlans />} />
+          <Route path="plans" element={<Navigate to="/admin/subscriptions" replace />} />
           <Route path="settings" element={<PlatformSettings />} />
         </Route>
       </Routes>

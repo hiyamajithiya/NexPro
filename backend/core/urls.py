@@ -8,6 +8,7 @@ from .views import (
     DashboardViewSet, CustomTokenObtainPairView, OrganizationViewSet,
     OrganizationEmailViewSet, RegisterView, PlatformAdminViewSet,
     TaskDocumentViewSet, ReportConfigurationViewSet, SubscriptionPlanViewSet,
+    CredentialVaultViewSet,
     SendSignupOTPView, VerifySignupOTPView, ResendSignupOTPView,
     ForgotPasswordView, VerifyPasswordResetOTPView, ResetPasswordView
 )
@@ -30,6 +31,7 @@ router.register(r'platform-admin', PlatformAdminViewSet, basename='platform-admi
 router.register(r'subscription-plans', SubscriptionPlanViewSet, basename='subscriptionplan')
 router.register(r'task-documents', TaskDocumentViewSet, basename='taskdocument')
 router.register(r'report-configurations', ReportConfigurationViewSet, basename='reportconfiguration')
+router.register(r'credentials', CredentialVaultViewSet, basename='credentialvault')
 
 urlpatterns = [
     path('', include(router.urls)),

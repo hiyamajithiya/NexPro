@@ -342,6 +342,27 @@ export const organizationEmailsAPI = {
   testEmail: (id, recipient) => api.post(`/organization-emails/${id}/test/`, { recipient }),
 };
 
+// Credential Vault API
+export const credentialsAPI = {
+  getAll: (params) => api.get('/credentials/', { params }),
+  getById: (id) => api.get(`/credentials/${id}/`),
+  create: (data) => api.post('/credentials/', data),
+  update: (id, data) => api.put(`/credentials/${id}/`, data),
+  delete: (id) => api.delete(`/credentials/${id}/`),
+  byClient: (clientId) => api.get('/credentials/by_client/', { params: { client_id: clientId } }),
+  reveal: (id) => api.get(`/credentials/${id}/reveal/`),
+  getPortalTypes: () => api.get('/credentials/portal_types/'),
+};
+
+// Notifications API
+export const notificationsAPI = {
+  getAll: (params) => api.get('/notifications/', { params }),
+  getRecent: () => api.get('/notifications/recent/'),
+  markRead: (id) => api.post(`/notifications/${id}/mark_read/`),
+  markAllRead: () => api.post('/notifications/mark_all_read/'),
+  getUnreadCount: () => api.get('/notifications/unread_count/'),
+};
+
 // Report Configurations API
 export const reportConfigurationsAPI = {
   getAll: (params) => api.get('/report-configurations/', { params }),
@@ -364,6 +385,25 @@ export const reportConfigurationsAPI = {
     return axios({
       url: `${API_BASE_URL}/report-configurations/${id}/download_pdf/`,
       method: 'GET',
+      responseType: 'blob',
+      headers,
+    });
+  },
+  // Ad-hoc report PDF generation
+  generateAdHocPdf: (params) => {
+    const token = localStorage.getItem('access_token');
+    const orgData = localStorage.getItem('organization');
+    const headers = { 'Authorization': `Bearer ${token}` };
+    if (orgData) {
+      try {
+        const org = JSON.parse(orgData);
+        if (org?.id) headers['X-Organization-ID'] = org.id;
+      } catch (e) {}
+    }
+    return axios({
+      url: `${API_BASE_URL}/report-configurations/generate_adhoc_pdf/`,
+      method: 'POST',
+      data: params,
       responseType: 'blob',
       headers,
     });
