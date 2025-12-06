@@ -70,7 +70,10 @@
       "Bash(\"D:/Git/cmd/git.exe\" commit -m \"$(cat <<''EOF''\nConnect Subscription Plans between Manage Plans and Subscriptions pages\n\n- Updated Subscriptions page to fetch plans dynamically from SubscriptionPlan API\n- Added warning message when no subscription plans are configured\n- Updated upgrade dialog to show all available plans from database\n- Backend now returns dynamic plan distribution from SubscriptionPlan model\n- Added View dialog to Manage Plans with full plan details (pricing, limits, features)\n- Added dynamic color palette for custom plan codes\n- Added View, Edit, Delete action buttons for each plan\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(\"D:/Git/cmd/git.exe\" push origin main)",
       "Bash(\"D:/Git/cmd/git.exe\" commit:*)",
-      "Bash(timeout 90 powershell:*)"
+      "Bash(timeout 90 powershell:*)",
+      "Bash(timeout 45 powershell:*)",
+      "Bash(\"D:/Git/cmd/git.exe\" add .claude/settings.local.json)",
+      "Bash(\"D:/Git/cmd/git.exe\" commit -m \"$(cat <<''EOF''\nUpdate local settings\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []
