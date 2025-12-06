@@ -17,6 +17,21 @@ class OTPService:
         return getattr(settings, 'FRONTEND_URL', 'https://nexpro.chinmaytechnosoft.com')
 
     @staticmethod
+    def send_email(to_email, subject, message, html_message=None):
+        """
+        Send email using Platform Settings SMTP configuration.
+        Falls back to Django settings if platform SMTP is not configured.
+        Returns: (success: bool, error_message: str or None)
+        """
+        from core.services.email_service import EmailService
+        return EmailService.send_email_via_platform_smtp(
+            to_email=to_email,
+            subject=subject,
+            body=message,
+            html_body=html_message
+        )
+
+    @staticmethod
     def get_client_ip(request):
         """Extract client IP from request"""
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
@@ -131,14 +146,16 @@ For support, contact: support@nexpro.com
 </html>
 """
 
-            send_mail(
+            # Use Platform Settings SMTP configuration
+            success, error = OTPService.send_email(
+                to_email=email,
                 subject=subject,
                 message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                html_message=html_message,
-                fail_silently=False,
+                html_message=html_message
             )
+
+            if not success:
+                return False, f"Failed to send OTP: {error}"
 
             # Log the action
             AuditLog.log(
@@ -269,14 +286,16 @@ For support, contact: support@nexpro.com
 </html>
 """
 
-            send_mail(
+            # Use Platform Settings SMTP configuration
+            success, error = OTPService.send_email(
+                to_email=email,
                 subject=subject,
                 message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                html_message=html_message,
-                fail_silently=False,
+                html_message=html_message
             )
+
+            if not success:
+                return False, f"Failed to send OTP: {error}"
 
             # Log the action
             AuditLog.log(
@@ -494,14 +513,16 @@ NexPro Team
 </html>
 """
 
-            send_mail(
+            # Use Platform Settings SMTP configuration
+            success, error = OTPService.send_email(
+                to_email=admin_user.email,
                 subject=subject,
                 message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[admin_user.email],
-                html_message=html_message,
-                fail_silently=False,
+                html_message=html_message
             )
+
+            if not success:
+                return False, f"Failed to send welcome email: {error}"
 
             return True, "Welcome email sent successfully."
 
@@ -670,16 +691,22 @@ NexPro Platform Notification
 </html>
 """
 
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=admin_emails,
-                html_message=html_message,
-                fail_silently=False,
-            )
+            # Use Platform Settings SMTP configuration - send to each admin
+            sent_count = 0
+            for admin_email in admin_emails:
+                success, error = OTPService.send_email(
+                    to_email=admin_email,
+                    subject=subject,
+                    message=message,
+                    html_message=html_message
+                )
+                if success:
+                    sent_count += 1
 
-            return True, f"Admin notification sent to {len(admin_emails)} platform admin(s)."
+            if sent_count == 0:
+                return False, "Failed to send admin notification to any platform admin."
+
+            return True, f"Admin notification sent to {sent_count} platform admin(s)."
 
         except Exception as e:
             return False, f"Failed to send admin notification: {str(e)}"
@@ -800,15 +827,16 @@ via NexPro
 </html>
 """
 
-            # Send welcome email to new user
-            send_mail(
+            # Send welcome email to new user using Platform Settings SMTP
+            success, error = OTPService.send_email(
+                to_email=user.email,
                 subject=user_subject,
                 message=user_message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                html_message=user_html_message,
-                fail_silently=False,
+                html_message=user_html_message
             )
+
+            if not success:
+                return False, f"Failed to send welcome email to new user: {error}"
 
             # Send notification to organization admins
             org_admins = User.objects.filter(
@@ -911,14 +939,14 @@ NexPro Notification
 </html>
 """
 
-                send_mail(
-                    subject=admin_subject,
-                    message=admin_message,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=admin_emails,
-                    html_message=admin_html_message,
-                    fail_silently=False,
-                )
+                # Send notification to each organization admin using Platform Settings SMTP
+                for admin_email in admin_emails:
+                    OTPService.send_email(
+                        to_email=admin_email,
+                        subject=admin_subject,
+                        message=admin_message,
+                        html_message=admin_html_message
+                    )
 
             return True, "New user notification emails sent successfully."
 
