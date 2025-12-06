@@ -225,7 +225,7 @@ class CompleteSignupView(APIView):
         try:
             otp_record = EmailOTP.objects.get(
                 email=email,
-                otp_type='SIGNUP',
+                purpose='SIGNUP',
                 is_verified=True
             )
         except EmailOTP.DoesNotExist:
