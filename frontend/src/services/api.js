@@ -76,9 +76,14 @@ export const authAPI = {
   login: (credentials) => api.post('/auth/login/', credentials),
   register: (data) => api.post('/auth/register/', data),
   refresh: (refreshToken) => api.post('/auth/refresh/', { refresh: refreshToken }),
-  // OTP-based signup
-  sendSignupOTP: (data) => api.post('/auth/signup/send-otp/', data),
+  // OTP-based signup (3-step flow)
+  // Step 1: Send OTP to email (only email required)
+  sendSignupOTP: (email) => api.post('/auth/signup/send-otp/', { email }),
+  // Step 2: Verify OTP
   verifySignupOTP: (data) => api.post('/auth/signup/verify-otp/', data),
+  // Step 3: Complete registration with all details
+  completeSignup: (data) => api.post('/auth/signup/complete/', data),
+  // Resend OTP
   resendSignupOTP: (email) => api.post('/auth/signup/resend-otp/', { email }),
   // Password reset
   forgotPassword: (email) => api.post('/auth/forgot-password/', { email }),

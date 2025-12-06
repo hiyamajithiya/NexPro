@@ -106,64 +106,51 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 class SendSignupOTPView(APIView):
     """
     Step 1 of registration: Send OTP for email verification.
-    Stores signup data temporarily until OTP is verified.
+    Only requires email - other details will be collected after OTP verification.
     """
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        # Validate required fields
-        required_fields = [
-            'organization_name', 'organization_email', 'organization_phone',
-            'admin_first_name', 'admin_last_name', 'admin_email', 'admin_password'
-        ]
+        email = request.data.get('email')
 
-        missing_fields = [f for f in required_fields if not request.data.get(f)]
-        if missing_fields:
+        if not email:
             return Response({
-                'error': f'Missing required fields: {", ".join(missing_fields)}'
+                'error': 'Email is required'
             }, status=status.HTTP_400_BAD_REQUEST)
-
-        admin_email = request.data.get('admin_email')
-        org_email = request.data.get('organization_email')
 
         # Validate email format
         import re
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        if not re.match(email_pattern, admin_email):
+        if not re.match(email_pattern, email):
             return Response({
-                'error': 'Invalid admin email format'
+                'error': 'Invalid email format'
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check if organization email already exists
-        if Organization.objects.filter(email=org_email).exists():
+        # Check if email already exists as a user
+        if User.objects.filter(email=email).exists():
+            return Response({
+                'error': 'A user with this email already exists. Please login instead.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if email already exists as organization email
+        if Organization.objects.filter(email=email).exists():
             return Response({
                 'error': 'An organization with this email already exists'
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check if admin email already exists
-        if User.objects.filter(email=admin_email).exists():
-            return Response({
-                'error': 'A user with this email already exists'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Store signup data (excluding password in plain text for security)
+        # Store minimal signup data - just the email for now
         signup_data = {
-            'organization_name': request.data.get('organization_name'),
-            'organization_email': org_email,
-            'organization_phone': request.data.get('organization_phone'),
-            'admin_first_name': request.data.get('admin_first_name'),
-            'admin_last_name': request.data.get('admin_last_name'),
-            'admin_email': admin_email,
-            'admin_password': request.data.get('admin_password'),  # Will be hashed when creating user
+            'admin_email': email,
+            'email_verified': False,
         }
 
         # Send OTP
-        success, message = OTPService.send_signup_otp(admin_email, signup_data, request)
+        success, message = OTPService.send_signup_otp(email, signup_data, request)
 
         if success:
             return Response({
                 'message': message,
-                'email': admin_email
+                'email': email
             }, status=status.HTTP_200_OK)
 
         return Response({'error': message}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -171,8 +158,8 @@ class SendSignupOTPView(APIView):
 
 class VerifySignupOTPView(APIView):
     """
-    Step 2 of registration: Verify OTP and complete registration.
-    Creates organization and user after successful OTP verification.
+    Step 2 of registration: Verify OTP only.
+    Returns a verification token that must be used in step 3 to complete registration.
     """
     permission_classes = [permissions.AllowAny]
 
@@ -191,24 +178,96 @@ class VerifySignupOTPView(APIView):
         if not success:
             return Response({'error': result}, status=status.HTTP_400_BAD_REQUEST)
 
-        # OTP verified, get signup data
+        # OTP verified - update signup data to mark email as verified
         otp_record = result
-        signup_data = otp_record.signup_data
+        signup_data = otp_record.signup_data or {}
+        signup_data['email_verified'] = True
+        signup_data['admin_email'] = email
+        otp_record.signup_data = signup_data
+        otp_record.is_verified = True
+        otp_record.save()
 
-        if not signup_data:
+        # Generate a verification token (using the OTP record ID as reference)
+        import hashlib
+        import secrets
+        verification_token = hashlib.sha256(f"{otp_record.id}{secrets.token_hex(16)}".encode()).hexdigest()
+
+        # Store verification token in signup_data
+        signup_data['verification_token'] = verification_token
+        otp_record.signup_data = signup_data
+        otp_record.save()
+
+        return Response({
+            'message': 'Email verified successfully! Please complete your registration.',
+            'email': email,
+            'verified': True,
+            'verification_token': verification_token
+        }, status=status.HTTP_200_OK)
+
+
+class CompleteSignupView(APIView):
+    """
+    Step 3 of registration: Complete registration with all details.
+    Requires verified email and all organization/user details.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email')
+        verification_token = request.data.get('verification_token')
+
+        if not email or not verification_token:
             return Response({
-                'error': 'Signup data not found. Please restart registration.'
+                'error': 'Email and verification token are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Find the verified OTP record
+        try:
+            otp_record = EmailOTP.objects.get(
+                email=email,
+                otp_type='SIGNUP',
+                is_verified=True
+            )
+        except EmailOTP.DoesNotExist:
+            return Response({
+                'error': 'Email not verified. Please verify your email first.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Verify the verification token
+        signup_data = otp_record.signup_data or {}
+        if signup_data.get('verification_token') != verification_token:
+            return Response({
+                'error': 'Invalid verification token. Please restart registration.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate required fields for registration
+        required_fields = [
+            'organization_name', 'organization_phone', 'admin_first_name', 'admin_password'
+        ]
+        missing_fields = [f for f in required_fields if not request.data.get(f)]
+        if missing_fields:
+            return Response({
+                'error': f'Missing required fields: {", ".join(missing_fields)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Use the verified email as both admin email and organization email
+        org_email = request.data.get('organization_email', email)
+
+        # Check if organization email already exists (if different from admin email)
+        if org_email != email and Organization.objects.filter(email=org_email).exists():
+            return Response({
+                'error': 'An organization with this email already exists'
             }, status=status.HTTP_400_BAD_REQUEST)
 
         # Create organization and user using the serializer
         serializer = OrganizationRegistrationSerializer(data={
-            'organization_name': signup_data.get('organization_name'),
-            'organization_email': signup_data.get('organization_email'),
-            'organization_phone': signup_data.get('organization_phone'),
-            'admin_first_name': signup_data.get('admin_first_name'),
-            'admin_last_name': signup_data.get('admin_last_name'),
-            'admin_email': signup_data.get('admin_email'),
-            'admin_password': signup_data.get('admin_password'),
+            'organization_name': request.data.get('organization_name'),
+            'organization_email': org_email,
+            'organization_phone': request.data.get('organization_phone', ''),
+            'admin_first_name': request.data.get('admin_first_name'),
+            'admin_last_name': request.data.get('admin_last_name', ''),
+            'admin_email': email,  # Use verified email
+            'admin_password': request.data.get('admin_password'),
         })
 
         if serializer.is_valid():

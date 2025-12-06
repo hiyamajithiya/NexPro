@@ -10,7 +10,7 @@ from .views import (
     TaskDocumentViewSet, ReportConfigurationViewSet, SubscriptionPlanViewSet,
     CredentialVaultViewSet, GoogleSyncHubViewSet, GoogleQuotaViewSet,
     SubTaskCategoryViewSet,
-    SendSignupOTPView, VerifySignupOTPView, ResendSignupOTPView,
+    SendSignupOTPView, VerifySignupOTPView, CompleteSignupView, ResendSignupOTPView,
     ForgotPasswordView, VerifyPasswordResetOTPView, ResetPasswordView
 )
 
@@ -44,9 +44,14 @@ urlpatterns = [
     path('auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
-    # OTP-based signup (new flow)
+    # OTP-based signup (3-step flow)
+    # Step 1: Send OTP to email
     path('auth/signup/send-otp/', SendSignupOTPView.as_view(), name='signup_send_otp'),
+    # Step 2: Verify OTP
     path('auth/signup/verify-otp/', VerifySignupOTPView.as_view(), name='signup_verify_otp'),
+    # Step 3: Complete registration with all details
+    path('auth/signup/complete/', CompleteSignupView.as_view(), name='signup_complete'),
+    # Resend OTP if needed
     path('auth/signup/resend-otp/', ResendSignupOTPView.as_view(), name='signup_resend_otp'),
 
     # Password reset with OTP

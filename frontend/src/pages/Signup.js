@@ -35,7 +35,7 @@ import {
 import { authAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-const steps = ['Organization', 'Admin Account', 'Verify Email', 'Complete'];
+const steps = ['Enter Email', 'Verify OTP', 'Complete Registration', 'Welcome'];
 
 export default function Signup() {
   const { login } = useAuth();
@@ -46,23 +46,21 @@ export default function Signup() {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Organization fields
-  const [orgName, setOrgName] = useState('');
-  const [orgEmail, setOrgEmail] = useState('');
-  const [orgPhone, setOrgPhone] = useState('');
+  // Step 1: Email only
+  const [email, setEmail] = useState('');
 
-  // Admin fields
+  // Step 2: OTP verification
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [resendTimer, setResendTimer] = useState(0);
+  const [verificationToken, setVerificationToken] = useState('');
+
+  // Step 3: Complete registration
+  const [orgName, setOrgName] = useState('');
+  const [orgPhone, setOrgPhone] = useState('');
   const [adminFirstName, setAdminFirstName] = useState('');
   const [adminLastName, setAdminLastName] = useState('');
-  const [adminEmail, setAdminEmail] = useState('');
-  const [adminMobile, setAdminMobile] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-
-  // OTP fields
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
-  const [otpSent, setOtpSent] = useState(false);
-  const [resendTimer, setResendTimer] = useState(0);
 
   // Timer for resend OTP
   useEffect(() => {
@@ -75,107 +73,33 @@ export default function Signup() {
     return () => clearInterval(interval);
   }, [resendTimer]);
 
-  const validateOrganization = () => {
-    if (!orgName.trim()) {
-      setError('Organization name is required');
-      return false;
+  // Step 1: Validate and send OTP
+  const handleSendOTP = async () => {
+    setError('');
+    setSuccess('');
+
+    if (!email.trim()) {
+      setError('Email is required');
+      return;
     }
-    if (!orgEmail.trim()) {
-      setError('Organization email is required');
-      return false;
-    }
+
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(orgEmail)) {
+    if (!emailRegex.test(email)) {
       setError('Please enter a valid email address');
-      return false;
+      return;
     }
-    return true;
-  };
 
-  const validateAdmin = () => {
-    if (!adminFirstName.trim()) {
-      setError('First name is required');
-      return false;
-    }
-    if (!adminEmail.trim()) {
-      setError('Admin email is required');
-      return false;
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(adminEmail)) {
-      setError('Please enter a valid admin email address');
-      return false;
-    }
-    if (!adminPassword) {
-      setError('Password is required');
-      return false;
-    }
-    if (adminPassword.length < 8) {
-      setError('Password must be at least 8 characters');
-      return false;
-    }
-    if (adminPassword !== confirmPassword) {
-      setError('Passwords do not match');
-      return false;
-    }
-    return true;
-  };
-
-  const handleNext = () => {
-    setError('');
-    setSuccess('');
-    if (activeStep === 0) {
-      if (validateOrganization()) {
-        setActiveStep(1);
-      }
-    } else if (activeStep === 1) {
-      if (validateAdmin()) {
-        sendOTP();
-      }
-    }
-  };
-
-  const handleBack = () => {
-    setError('');
-    setSuccess('');
-    setActiveStep((prev) => prev - 1);
-  };
-
-  const sendOTP = async () => {
     setLoading(true);
-    setError('');
 
     try {
-      const signupData = {
-        organization_name: orgName,
-        organization_email: orgEmail,
-        organization_phone: orgPhone,
-        admin_email: adminEmail,
-        admin_password: adminPassword,
-        admin_first_name: adminFirstName,
-        admin_last_name: adminLastName,
-        admin_mobile: adminMobile,
-      };
-
-      await authAPI.sendSignupOTP(signupData);
-      setOtpSent(true);
+      await authAPI.sendSignupOTP(email);
       setResendTimer(60);
-      setActiveStep(2);
-      setSuccess(`Verification code sent to ${adminEmail}`);
+      setActiveStep(1);
+      setSuccess(`Verification code sent to ${email}`);
     } catch (err) {
       const errorData = err.response?.data;
       if (errorData?.error) {
         setError(errorData.error);
-      } else if (errorData) {
-        const errorMessages = [];
-        Object.keys(errorData).forEach((key) => {
-          if (Array.isArray(errorData[key])) {
-            errorMessages.push(...errorData[key]);
-          } else if (typeof errorData[key] === 'string') {
-            errorMessages.push(errorData[key]);
-          }
-        });
-        setError(errorMessages.join(' ') || 'Failed to send OTP');
       } else {
         setError('Failed to send verification code. Please try again.');
       }
@@ -184,12 +108,13 @@ export default function Signup() {
     }
   };
 
+  // Resend OTP
   const resendOTP = async () => {
     setLoading(true);
     setError('');
 
     try {
-      await authAPI.resendSignupOTP(adminEmail);
+      await authAPI.resendSignupOTP(email);
       setResendTimer(60);
       setSuccess('Verification code resent successfully');
     } catch (err) {
@@ -199,6 +124,7 @@ export default function Signup() {
     }
   };
 
+  // OTP input handlers
   const handleOtpChange = useCallback((index, value) => {
     if (value.length > 1) return;
     if (value && !/^\d$/.test(value)) return;
@@ -233,7 +159,8 @@ export default function Signup() {
     }
   }, [otp]);
 
-  const verifyOTP = async () => {
+  // Step 2: Verify OTP
+  const handleVerifyOTP = async () => {
     const otpCode = otp.join('');
     if (otpCode.length !== 6) {
       setError('Please enter the complete 6-digit code');
@@ -245,8 +172,70 @@ export default function Signup() {
 
     try {
       const response = await authAPI.verifySignupOTP({
-        email: adminEmail,
+        email: email,
         otp: otpCode,
+      });
+
+      // Store the verification token
+      setVerificationToken(response.data.verification_token);
+      setSuccess('Email verified! Please complete your registration.');
+      setActiveStep(2);
+    } catch (err) {
+      const errorData = err.response?.data;
+      if (errorData?.error) {
+        setError(errorData.error);
+      } else {
+        setError('Invalid verification code. Please try again.');
+      }
+      // Clear OTP on error
+      setOtp(['', '', '', '', '', '']);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 3: Complete registration
+  const handleCompleteSignup = async () => {
+    setError('');
+
+    // Validate fields
+    if (!orgName.trim()) {
+      setError('Organization name is required');
+      return;
+    }
+    if (!orgPhone.trim()) {
+      setError('Mobile number is required');
+      return;
+    }
+    if (!adminFirstName.trim()) {
+      setError('First name is required');
+      return;
+    }
+    if (!adminPassword) {
+      setError('Password is required');
+      return;
+    }
+    if (adminPassword.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+    if (adminPassword !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await authAPI.completeSignup({
+        email: email,
+        verification_token: verificationToken,
+        organization_name: orgName,
+        organization_email: email, // Use same email for org
+        organization_phone: orgPhone,
+        admin_first_name: adminFirstName,
+        admin_last_name: adminLastName,
+        admin_password: adminPassword,
       });
 
       // Extract user data
@@ -277,13 +266,33 @@ export default function Signup() {
       const errorData = err.response?.data;
       if (errorData?.error) {
         setError(errorData.error);
+      } else if (errorData) {
+        const errorMessages = [];
+        Object.keys(errorData).forEach((key) => {
+          if (Array.isArray(errorData[key])) {
+            errorMessages.push(...errorData[key]);
+          } else if (typeof errorData[key] === 'string') {
+            errorMessages.push(errorData[key]);
+          }
+        });
+        setError(errorMessages.join(' ') || 'Registration failed');
       } else {
-        setError('Invalid verification code. Please try again.');
+        setError('Registration failed. Please try again.');
       }
-      // Clear OTP on error
-      setOtp(['', '', '', '', '', '']);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBack = () => {
+    setError('');
+    setSuccess('');
+    if (activeStep === 1) {
+      setActiveStep(0);
+      setOtp(['', '', '', '', '', '']);
+    } else if (activeStep === 2) {
+      // Cannot go back from registration step - need to verify again
+      setError('Please complete your registration or start over');
     }
   };
 
@@ -326,7 +335,7 @@ export default function Signup() {
           sx={{
             p: 5,
             width: '100%',
-            maxWidth: 600,
+            maxWidth: 550,
             zIndex: 1,
             borderRadius: 4,
             background: 'rgba(255, 255, 255, 0.95)',
@@ -395,13 +404,186 @@ export default function Signup() {
             </Fade>
           )}
 
-          {/* Step 1: Organization Details */}
+          {/* Step 1: Enter Email */}
           {activeStep === 0 && (
             <Fade in={true}>
               <Box>
-                <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
-                  Organization Details
+                <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, textAlign: 'center' }}>
+                  Enter your email to get started
                 </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3, textAlign: 'center' }}>
+                  We'll send you a verification code to confirm your email
+                </Typography>
+                <TextField
+                  fullWidth
+                  label="Email Address"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  onKeyPress={(e) => e.key === 'Enter' && handleSendOTP()}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Email color="primary" />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{ mb: 3 }}
+                />
+                <Button
+                  fullWidth
+                  variant="contained"
+                  size="large"
+                  endIcon={<ArrowForwardIcon />}
+                  onClick={handleSendOTP}
+                  disabled={loading}
+                  sx={{
+                    py: 1.5,
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    boxShadow: '0 4px 16px rgba(102, 126, 234, 0.4)',
+                    '&:hover': {
+                      background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
+                    },
+                  }}
+                >
+                  {loading ? (
+                    <>
+                      <CircularProgress size={20} sx={{ mr: 1, color: 'white' }} />
+                      Sending...
+                    </>
+                  ) : (
+                    'Send Verification Code'
+                  )}
+                </Button>
+              </Box>
+            </Fade>
+          )}
+
+          {/* Step 2: OTP Verification */}
+          {activeStep === 1 && (
+            <Fade in={true}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                  <IconButton onClick={handleBack} size="small" sx={{ mr: 1 }}>
+                    <ArrowBackIcon />
+                  </IconButton>
+                  <Typography variant="h6" sx={{ fontWeight: 600, flex: 1, textAlign: 'center', mr: 4 }}>
+                    Verify Your Email
+                  </Typography>
+                </Box>
+
+                <Box
+                  sx={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                  }}
+                >
+                  <MarkEmailRead sx={{ fontSize: 40, color: 'white' }} />
+                </Box>
+
+                <Typography variant="body1" color="text.secondary" sx={{ mb: 1 }}>
+                  We've sent a 6-digit code to
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 600, mb: 3 }}>
+                  {email}
+                </Typography>
+
+                {/* OTP Input */}
+                <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mb: 3 }}>
+                  {otp.map((digit, index) => (
+                    <TextField
+                      key={index}
+                      id={`otp-${index}`}
+                      value={digit}
+                      onChange={(e) => handleOtpChange(index, e.target.value)}
+                      onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                      onPaste={index === 0 ? handleOtpPaste : undefined}
+                      inputProps={{
+                        maxLength: 1,
+                        style: {
+                          textAlign: 'center',
+                          fontSize: '1.5rem',
+                          fontWeight: 600,
+                          padding: '12px',
+                        },
+                      }}
+                      sx={{
+                        width: 50,
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: 2,
+                        },
+                      }}
+                    />
+                  ))}
+                </Box>
+
+                <Button
+                  fullWidth
+                  variant="contained"
+                  size="large"
+                  onClick={handleVerifyOTP}
+                  disabled={loading || otp.join('').length !== 6}
+                  sx={{
+                    py: 1.5,
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    boxShadow: '0 4px 16px rgba(102, 126, 234, 0.4)',
+                    '&:hover': {
+                      background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
+                    },
+                  }}
+                >
+                  {loading ? (
+                    <>
+                      <CircularProgress size={20} sx={{ mr: 1, color: 'white' }} />
+                      Verifying...
+                    </>
+                  ) : (
+                    'Verify Email'
+                  )}
+                </Button>
+
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Didn't receive the code?{' '}
+                    {resendTimer > 0 ? (
+                      <Typography component="span" color="primary" sx={{ fontWeight: 600 }}>
+                        Resend in {resendTimer}s
+                      </Typography>
+                    ) : (
+                      <Link
+                        component="button"
+                        variant="body2"
+                        onClick={resendOTP}
+                        disabled={loading}
+                        sx={{ fontWeight: 600 }}
+                      >
+                        Resend Code
+                      </Link>
+                    )}
+                  </Typography>
+                </Box>
+              </Box>
+            </Fade>
+          )}
+
+          {/* Step 3: Complete Registration */}
+          {activeStep === 2 && (
+            <Fade in={true}>
+              <Box>
+                <Typography variant="h6" sx={{ mb: 1, fontWeight: 600, textAlign: 'center' }}>
+                  Complete Your Registration
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3, textAlign: 'center' }}>
+                  Email verified: <strong>{email}</strong>
+                </Typography>
+
                 <Grid container spacing={2}>
                   <Grid item xs={12}>
                     <TextField
@@ -422,24 +604,8 @@ export default function Signup() {
                   <Grid item xs={12}>
                     <TextField
                       fullWidth
-                      label="Organization Email"
-                      type="email"
-                      value={orgEmail}
-                      onChange={(e) => setOrgEmail(e.target.value)}
-                      placeholder="contact@yourfirm.com"
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <Email color="primary" />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TextField
-                      fullWidth
-                      label="Phone (Optional)"
+                      required
+                      label="Mobile Number"
                       value={orgPhone}
                       onChange={(e) => setOrgPhone(e.target.value)}
                       placeholder="+91 9876543210"
@@ -452,42 +618,6 @@ export default function Signup() {
                       }}
                     />
                   </Grid>
-                </Grid>
-                <Button
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  endIcon={<ArrowForwardIcon />}
-                  onClick={handleNext}
-                  sx={{
-                    mt: 3,
-                    py: 1.5,
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    boxShadow: '0 4px 16px rgba(102, 126, 234, 0.4)',
-                    '&:hover': {
-                      background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
-                    },
-                  }}
-                >
-                  Continue
-                </Button>
-              </Box>
-            </Fade>
-          )}
-
-          {/* Step 2: Admin Account */}
-          {activeStep === 1 && (
-            <Fade in={true}>
-              <Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                  <IconButton onClick={handleBack} size="small" sx={{ mr: 1 }}>
-                    <ArrowBackIcon />
-                  </IconButton>
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    Admin Account
-                  </Typography>
-                </Box>
-                <Grid container spacing={2}>
                   <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
@@ -509,39 +639,6 @@ export default function Signup() {
                       label="Last Name (Optional)"
                       value={adminLastName}
                       onChange={(e) => setAdminLastName(e.target.value)}
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TextField
-                      fullWidth
-                      label="Email"
-                      type="email"
-                      value={adminEmail}
-                      onChange={(e) => setAdminEmail(e.target.value)}
-                      placeholder="admin@yourfirm.com"
-                      helperText="A verification code will be sent to this email"
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <Email color="primary" />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TextField
-                      fullWidth
-                      label="Mobile (Optional)"
-                      value={adminMobile}
-                      onChange={(e) => setAdminMobile(e.target.value)}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <Phone color="primary" />
-                          </InputAdornment>
-                        ),
-                      }}
                     />
                   </Grid>
                   <Grid item xs={12}>
@@ -588,11 +685,12 @@ export default function Signup() {
                     />
                   </Grid>
                 </Grid>
+
                 <Button
                   fullWidth
                   variant="contained"
                   size="large"
-                  onClick={handleNext}
+                  onClick={handleCompleteSignup}
                   disabled={loading}
                   sx={{
                     mt: 3,
@@ -607,125 +705,12 @@ export default function Signup() {
                   {loading ? (
                     <>
                       <CircularProgress size={20} sx={{ mr: 1, color: 'white' }} />
-                      Sending Code...
+                      Creating Account...
                     </>
                   ) : (
-                    'Send Verification Code'
+                    'Create Account'
                   )}
                 </Button>
-              </Box>
-            </Fade>
-          )}
-
-          {/* Step 3: OTP Verification */}
-          {activeStep === 2 && (
-            <Fade in={true}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                  <IconButton onClick={handleBack} size="small" sx={{ mr: 1 }}>
-                    <ArrowBackIcon />
-                  </IconButton>
-                  <Typography variant="h6" sx={{ fontWeight: 600, flex: 1, textAlign: 'center', mr: 4 }}>
-                    Verify Your Email
-                  </Typography>
-                </Box>
-
-                <Box
-                  sx={{
-                    width: 80,
-                    height: 80,
-                    borderRadius: '50%',
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    margin: '0 auto 16px',
-                  }}
-                >
-                  <MarkEmailRead sx={{ fontSize: 40, color: 'white' }} />
-                </Box>
-
-                <Typography variant="body1" color="text.secondary" sx={{ mb: 1 }}>
-                  We've sent a 6-digit code to
-                </Typography>
-                <Typography variant="body1" sx={{ fontWeight: 600, mb: 3 }}>
-                  {adminEmail}
-                </Typography>
-
-                {/* OTP Input */}
-                <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mb: 3 }}>
-                  {otp.map((digit, index) => (
-                    <TextField
-                      key={index}
-                      id={`otp-${index}`}
-                      value={digit}
-                      onChange={(e) => handleOtpChange(index, e.target.value)}
-                      onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                      onPaste={index === 0 ? handleOtpPaste : undefined}
-                      inputProps={{
-                        maxLength: 1,
-                        style: {
-                          textAlign: 'center',
-                          fontSize: '1.5rem',
-                          fontWeight: 600,
-                          padding: '12px',
-                        },
-                      }}
-                      sx={{
-                        width: 50,
-                        '& .MuiOutlinedInput-root': {
-                          borderRadius: 2,
-                        },
-                      }}
-                    />
-                  ))}
-                </Box>
-
-                <Button
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  onClick={verifyOTP}
-                  disabled={loading || otp.join('').length !== 6}
-                  sx={{
-                    py: 1.5,
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    boxShadow: '0 4px 16px rgba(102, 126, 234, 0.4)',
-                    '&:hover': {
-                      background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
-                    },
-                  }}
-                >
-                  {loading ? (
-                    <>
-                      <CircularProgress size={20} sx={{ mr: 1, color: 'white' }} />
-                      Verifying...
-                    </>
-                  ) : (
-                    'Verify & Create Account'
-                  )}
-                </Button>
-
-                <Box sx={{ mt: 3 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Didn't receive the code?{' '}
-                    {resendTimer > 0 ? (
-                      <Typography component="span" color="primary" sx={{ fontWeight: 600 }}>
-                        Resend in {resendTimer}s
-                      </Typography>
-                    ) : (
-                      <Link
-                        component="button"
-                        variant="body2"
-                        onClick={resendOTP}
-                        disabled={loading}
-                        sx={{ fontWeight: 600 }}
-                      >
-                        Resend Code
-                      </Link>
-                    )}
-                  </Typography>
-                </Box>
               </Box>
             </Fade>
           )}
@@ -739,7 +724,7 @@ export default function Signup() {
                   Welcome to NexPro!
                 </Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-                  Your email has been verified and organization created successfully.
+                  Your account has been created successfully.
                   <br />
                   Redirecting to dashboard...
                 </Typography>
