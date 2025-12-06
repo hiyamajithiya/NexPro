@@ -261,7 +261,7 @@ export default function Employees() {
     },
     {
       field: 'assigned_work_types',
-      headerName: 'Work Types',
+      headerName: 'Task Categories',
       width: 140,
       renderCell: (params) => {
         const assignments = params.value || [];
@@ -337,7 +337,7 @@ export default function Employees() {
                     Employee Management
                   </Typography>
                   <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
-                    Manage employees and assign work types
+                    Manage employees and assign task categories
                   </Typography>
                 </Box>
               </Box>
@@ -399,7 +399,7 @@ export default function Employees() {
             >
               <Tab icon={<PeopleIcon />} iconPosition="start" label="Basic Info" />
               <Tab icon={<BadgeIcon />} iconPosition="start" label="Employee Details" />
-              <Tab icon={<AssignmentIcon />} iconPosition="start" label="Work Types" />
+              <Tab icon={<AssignmentIcon />} iconPosition="start" label="Task Categories" />
             </Tabs>
 
             <Box sx={{ p: 3 }}>
@@ -524,12 +524,12 @@ export default function Employees() {
               {dialogTab === 2 && (
                 <Box>
                   <Alert severity="info" sx={{ mb: 3 }}>
-                    Assign work types to this employee. All new tasks for assigned work types will be automatically assigned to this employee.
+                    Assign task categories to this employee. All new tasks for assigned categories will be automatically assigned to this employee.
                   </Alert>
 
                   {workTypes.length === 0 ? (
                     <Box sx={{ textAlign: 'center', py: 4 }}>
-                      <Typography color="text.secondary">No work types available</Typography>
+                      <Typography color="text.secondary">No task categories available</Typography>
                     </Box>
                   ) : (
                     <Paper variant="outlined" sx={{ maxHeight: 400, overflow: 'auto' }}>
@@ -563,7 +563,7 @@ export default function Employees() {
 
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="body2" color="text.secondary">
-                      {selectedWorkTypes.length} work type(s) selected
+                      {selectedWorkTypes.length} task category(s) selected
                     </Typography>
                   </Box>
                 </Box>

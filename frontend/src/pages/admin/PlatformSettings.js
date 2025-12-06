@@ -17,6 +17,9 @@ import {
   Chip,
   InputAdornment,
   IconButton,
+  Tabs,
+  Tab,
+  Tooltip,
 } from '@mui/material';
 import {
   Settings,
@@ -32,8 +35,25 @@ import {
   Send,
   CheckCircle,
   Error as ErrorIcon,
+  Google,
+  Info,
+  ContentCopy,
 } from '@mui/icons-material';
 import { platformAdminAPI } from '../../services/api';
+
+function TabPanel({ children, value, index, ...other }) {
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`settings-tabpanel-${index}`}
+      aria-labelledby={`settings-tab-${index}`}
+      {...other}
+    >
+      {value === index && <Box sx={{ pt: 3 }}>{children}</Box>}
+    </div>
+  );
+}
 
 export default function PlatformSettings() {
   const [loading, setLoading] = useState(true);
@@ -43,7 +63,10 @@ export default function PlatformSettings() {
   const [error, setError] = useState('');
   const [stats, setStats] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [showGoogleSecret, setShowGoogleSecret] = useState(false);
   const [testEmail, setTestEmail] = useState('');
+  const [activeTab, setActiveTab] = useState(0);
+  const [copied, setCopied] = useState(false);
 
   // Platform settings state - maps to backend PlatformSettings model
   const [settings, setSettings] = useState({
@@ -56,6 +79,11 @@ export default function PlatformSettings() {
     max_free_clients: 10,
     require_email_verification: true,
     allow_password_reset: true,
+    // Google OAuth Settings
+    google_client_id: '',
+    google_client_secret: '',
+    google_client_secret_set: false,
+    google_oauth_enabled: false,
     // SMTP Settings
     smtp_host: '',
     smtp_port: 587,
@@ -82,7 +110,12 @@ export default function PlatformSettings() {
         platformAdminAPI.getSettings()
       ]);
       setStats(statsRes.data);
-      setSettings(prev => ({ ...prev, ...settingsRes.data, smtp_password: '' }));
+      setSettings(prev => ({
+        ...prev,
+        ...settingsRes.data,
+        smtp_password: '',
+        google_client_secret: ''
+      }));
     } catch (err) {
       setError('Failed to load platform data');
       console.error(err);
@@ -107,6 +140,9 @@ export default function PlatformSettings() {
         max_free_clients: settings.max_free_clients,
         require_email_verification: settings.require_email_verification,
         allow_password_reset: settings.allow_password_reset,
+        // Google OAuth Settings
+        google_client_id: settings.google_client_id,
+        google_oauth_enabled: settings.google_oauth_enabled,
         // SMTP Settings
         smtp_host: settings.smtp_host,
         smtp_port: settings.smtp_port,
@@ -118,13 +154,21 @@ export default function PlatformSettings() {
         smtp_enabled: settings.smtp_enabled,
       };
 
-      // Only include password if it was changed
+      // Only include passwords/secrets if they were changed
       if (settings.smtp_password) {
         dataToSave.smtp_password = settings.smtp_password;
       }
+      if (settings.google_client_secret) {
+        dataToSave.google_client_secret = settings.google_client_secret;
+      }
 
       const response = await platformAdminAPI.updateSettings(dataToSave);
-      setSettings(prev => ({ ...prev, ...response.data, smtp_password: '' }));
+      setSettings(prev => ({
+        ...prev,
+        ...response.data,
+        smtp_password: '',
+        google_client_secret: ''
+      }));
       setSuccess('Platform settings saved successfully');
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to save settings');
@@ -152,6 +196,14 @@ export default function PlatformSettings() {
     } finally {
       setTesting(false);
     }
+  };
+
+  const handleCopyRedirectUri = () => {
+    const redirectUri = `${window.location.origin}/dashboard/google-sync`;
+    navigator.clipboard.writeText(redirectUri).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   };
 
   if (loading) {
@@ -222,7 +274,7 @@ export default function PlatformSettings() {
         </Alert>
       )}
 
-      {/* Platform Overview */}
+      {/* Platform Overview Stats */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ borderRadius: 3, boxShadow: 2 }}>
@@ -305,324 +357,477 @@ export default function PlatformSettings() {
         </Grid>
       </Grid>
 
-      <Grid container spacing={3}>
-        {/* General Settings */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3, borderRadius: 3, boxShadow: 2 }}>
-            <Box display="flex" alignItems="center" gap={2} mb={3}>
-              <Tune color="primary" />
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                General Settings
-              </Typography>
-            </Box>
-            <Box>
-              <TextField
-                fullWidth
-                label="Platform Name"
-                value={settings.platform_name || ''}
-                onChange={(e) => setSettings({ ...settings, platform_name: e.target.value })}
-                sx={{ mb: 3 }}
-              />
-              <TextField
-                fullWidth
-                label="Support Email"
-                value={settings.support_email || ''}
-                onChange={(e) => setSettings({ ...settings, support_email: e.target.value })}
-                sx={{ mb: 3 }}
-              />
-              <Divider sx={{ my: 2 }} />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={settings.enable_signups || false}
-                    onChange={(e) => setSettings({ ...settings, enable_signups: e.target.checked })}
-                    color="primary"
-                  />
-                }
-                label="Allow New Signups"
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={settings.maintenance_mode || false}
-                    onChange={(e) => setSettings({ ...settings, maintenance_mode: e.target.checked })}
-                    color="warning"
-                  />
-                }
-                label="Maintenance Mode"
-              />
-            </Box>
-          </Paper>
-        </Grid>
+      {/* Tabbed Settings Interface */}
+      <Paper sx={{ borderRadius: 3, boxShadow: 2 }}>
+        <Tabs
+          value={activeTab}
+          onChange={(e, newValue) => setActiveTab(newValue)}
+          sx={{
+            borderBottom: 1,
+            borderColor: 'divider',
+            px: 2,
+            '& .MuiTab-root': {
+              textTransform: 'none',
+              fontWeight: 500,
+              minHeight: 56,
+            },
+          }}
+        >
+          <Tab icon={<Tune sx={{ fontSize: 20 }} />} iconPosition="start" label="General" />
+          <Tab icon={<Security sx={{ fontSize: 20 }} />} iconPosition="start" label="Security" />
+          <Tab icon={<Google sx={{ fontSize: 20 }} />} iconPosition="start" label="Google OAuth" />
+          <Tab icon={<Email sx={{ fontSize: 20 }} />} iconPosition="start" label="SMTP Email" />
+        </Tabs>
 
-        {/* Trial Settings */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3, borderRadius: 3, boxShadow: 2 }}>
-            <Box display="flex" alignItems="center" gap={2} mb={3}>
-              <AccessTime color="primary" />
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                Trial & Plan Settings
-              </Typography>
-            </Box>
-            <Box>
-              <TextField
-                fullWidth
-                type="number"
-                label="Default Trial Period (days)"
-                value={settings.default_trial_days || 30}
-                onChange={(e) => setSettings({ ...settings, default_trial_days: parseInt(e.target.value) || 0 })}
-                inputProps={{ min: 1, max: 365 }}
-                helperText="Default trial period for new organizations"
-                sx={{ mb: 3 }}
-              />
-              <TextField
-                fullWidth
-                type="number"
-                label="Max Free Users"
-                value={settings.max_free_users || 1}
-                onChange={(e) => setSettings({ ...settings, max_free_users: parseInt(e.target.value) || 0 })}
-                inputProps={{ min: 1 }}
-                helperText="Maximum users allowed in free plan"
-                sx={{ mb: 3 }}
-              />
-              <TextField
-                fullWidth
-                type="number"
-                label="Max Free Clients"
-                value={settings.max_free_clients || 10}
-                onChange={(e) => setSettings({ ...settings, max_free_clients: parseInt(e.target.value) || 0 })}
-                inputProps={{ min: 1 }}
-                helperText="Maximum clients allowed in free plan"
-              />
-            </Box>
-          </Paper>
-        </Grid>
-
-        {/* Security Settings */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3, borderRadius: 3, boxShadow: 2 }}>
-            <Box display="flex" alignItems="center" gap={2} mb={3}>
-              <Security color="primary" />
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                Security Settings
-              </Typography>
-            </Box>
-            <Box>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={settings.require_email_verification || false}
-                    onChange={(e) => setSettings({ ...settings, require_email_verification: e.target.checked })}
-                    color="primary"
-                  />
-                }
-                label="Require Email Verification"
-              />
-              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2, ml: 4 }}>
-                New users must verify their email before accessing the platform
-              </Typography>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={settings.allow_password_reset || false}
-                    onChange={(e) => setSettings({ ...settings, allow_password_reset: e.target.checked })}
-                    color="primary"
-                  />
-                }
-                label="Allow Password Reset"
-              />
-              <Typography variant="caption" color="text.secondary" display="block" sx={{ ml: 4 }}>
-                Allow users to reset their password via email OTP
-              </Typography>
-            </Box>
-          </Paper>
-        </Grid>
-
-        {/* SMTP Email Configuration */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3, borderRadius: 3, boxShadow: 2 }}>
-            <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
-              <Box display="flex" alignItems="center" gap={2}>
-                <Email color="primary" />
-                <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  SMTP Email Configuration
+        <Box sx={{ p: 3 }}>
+          {/* General Settings Tab */}
+          <TabPanel value={activeTab} index={0}>
+            <Grid container spacing={4}>
+              <Grid item xs={12} md={6}>
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Tune fontSize="small" color="primary" /> Platform Information
                 </Typography>
-              </Box>
-              <Chip
-                icon={settings.smtp_enabled ? <CheckCircle /> : <ErrorIcon />}
-                label={settings.smtp_enabled ? 'Enabled' : 'Disabled'}
-                color={settings.smtp_enabled ? 'success' : 'default'}
-                size="small"
-              />
-            </Box>
-            <Box>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={settings.smtp_enabled || false}
-                    onChange={(e) => setSettings({ ...settings, smtp_enabled: e.target.checked })}
-                    color="primary"
-                  />
-                }
-                label="Enable SMTP Email Sending"
-                sx={{ mb: 2 }}
-              />
-
-              <Grid container spacing={2}>
-                <Grid item xs={8}>
-                  <TextField
-                    fullWidth
-                    label="SMTP Host"
-                    placeholder="smtp.gmail.com"
-                    value={settings.smtp_host || ''}
-                    onChange={(e) => setSettings({ ...settings, smtp_host: e.target.value })}
-                    disabled={!settings.smtp_enabled}
-                    size="small"
-                  />
-                </Grid>
-                <Grid item xs={4}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    label="Port"
-                    value={settings.smtp_port || 587}
-                    onChange={(e) => setSettings({ ...settings, smtp_port: parseInt(e.target.value) || 587 })}
-                    disabled={!settings.smtp_enabled}
-                    size="small"
-                  />
-                </Grid>
-              </Grid>
-
-              <TextField
-                fullWidth
-                label="SMTP Username"
-                placeholder="your-email@gmail.com"
-                value={settings.smtp_username || ''}
-                onChange={(e) => setSettings({ ...settings, smtp_username: e.target.value })}
-                disabled={!settings.smtp_enabled}
-                size="small"
-                sx={{ mt: 2 }}
-              />
-
-              <TextField
-                fullWidth
-                type={showPassword ? 'text' : 'password'}
-                label="SMTP Password"
-                placeholder={settings.smtp_password_set ? '••••••••' : 'Enter password'}
-                value={settings.smtp_password || ''}
-                onChange={(e) => setSettings({ ...settings, smtp_password: e.target.value })}
-                disabled={!settings.smtp_enabled}
-                size="small"
-                sx={{ mt: 2 }}
-                helperText={settings.smtp_password_set ? 'Password is set. Leave blank to keep current password.' : 'Enter your SMTP password or app password'}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        onClick={() => setShowPassword(!showPassword)}
-                        edge="end"
-                        disabled={!settings.smtp_enabled}
-                      >
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-
-              <Divider sx={{ my: 2 }} />
-
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <TextField
-                    fullWidth
-                    label="From Email"
-                    placeholder="noreply@yourdomain.com"
-                    value={settings.smtp_from_email || ''}
-                    onChange={(e) => setSettings({ ...settings, smtp_from_email: e.target.value })}
-                    disabled={!settings.smtp_enabled}
-                    size="small"
-                  />
-                </Grid>
-                <Grid item xs={6}>
-                  <TextField
-                    fullWidth
-                    label="From Name"
-                    placeholder="NexPro Platform"
-                    value={settings.smtp_from_name || ''}
-                    onChange={(e) => setSettings({ ...settings, smtp_from_name: e.target.value })}
-                    disabled={!settings.smtp_enabled}
-                    size="small"
-                  />
-                </Grid>
-              </Grid>
-
-              <Box sx={{ mt: 2 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={settings.smtp_use_tls || false}
-                      onChange={(e) => setSettings({
-                        ...settings,
-                        smtp_use_tls: e.target.checked,
-                        smtp_use_ssl: e.target.checked ? false : settings.smtp_use_ssl
-                      })}
-                      disabled={!settings.smtp_enabled}
-                      size="small"
-                    />
-                  }
-                  label="Use TLS (Port 587)"
-                />
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={settings.smtp_use_ssl || false}
-                      onChange={(e) => setSettings({
-                        ...settings,
-                        smtp_use_ssl: e.target.checked,
-                        smtp_use_tls: e.target.checked ? false : settings.smtp_use_tls
-                      })}
-                      disabled={!settings.smtp_enabled}
-                      size="small"
-                    />
-                  }
-                  label="Use SSL (Port 465)"
-                />
-              </Box>
-
-              <Divider sx={{ my: 2 }} />
-
-              {/* Test Email Section */}
-              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
-                Test Email Configuration
-              </Typography>
-              <Box display="flex" gap={1}>
                 <TextField
                   fullWidth
-                  label="Test Recipient Email"
-                  placeholder="test@example.com"
-                  value={testEmail}
-                  onChange={(e) => setTestEmail(e.target.value)}
-                  disabled={!settings.smtp_enabled || testing}
-                  size="small"
+                  label="Platform Name"
+                  value={settings.platform_name || ''}
+                  onChange={(e) => setSettings({ ...settings, platform_name: e.target.value })}
+                  sx={{ mb: 3 }}
                 />
-                <Button
-                  variant="outlined"
-                  startIcon={testing ? <CircularProgress size={16} /> : <Send />}
-                  onClick={handleTestEmail}
-                  disabled={!settings.smtp_enabled || testing || !testEmail}
-                  sx={{ minWidth: 120 }}
-                >
-                  {testing ? 'Sending...' : 'Send Test'}
-                </Button>
-              </Box>
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                Save settings first, then send a test email to verify configuration
-              </Typography>
-            </Box>
-          </Paper>
-        </Grid>
-      </Grid>
+                <TextField
+                  fullWidth
+                  label="Support Email"
+                  value={settings.support_email || ''}
+                  onChange={(e) => setSettings({ ...settings, support_email: e.target.value })}
+                  sx={{ mb: 3 }}
+                />
+                <Divider sx={{ my: 2 }} />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={settings.enable_signups || false}
+                      onChange={(e) => setSettings({ ...settings, enable_signups: e.target.checked })}
+                      color="primary"
+                    />
+                  }
+                  label="Allow New Signups"
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={settings.maintenance_mode || false}
+                      onChange={(e) => setSettings({ ...settings, maintenance_mode: e.target.checked })}
+                      color="warning"
+                    />
+                  }
+                  label="Maintenance Mode"
+                />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <AccessTime fontSize="small" color="primary" /> Trial & Plan Limits
+                </Typography>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Default Trial Period (days)"
+                  value={settings.default_trial_days || 30}
+                  onChange={(e) => setSettings({ ...settings, default_trial_days: parseInt(e.target.value) || 0 })}
+                  inputProps={{ min: 1, max: 365 }}
+                  helperText="Default trial period for new organizations"
+                  sx={{ mb: 3 }}
+                />
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Max Free Users"
+                  value={settings.max_free_users || 1}
+                  onChange={(e) => setSettings({ ...settings, max_free_users: parseInt(e.target.value) || 0 })}
+                  inputProps={{ min: 1 }}
+                  helperText="Maximum users allowed in free plan"
+                  sx={{ mb: 3 }}
+                />
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Max Free Clients"
+                  value={settings.max_free_clients || 10}
+                  onChange={(e) => setSettings({ ...settings, max_free_clients: parseInt(e.target.value) || 0 })}
+                  inputProps={{ min: 1 }}
+                  helperText="Maximum clients allowed in free plan"
+                />
+              </Grid>
+            </Grid>
+          </TabPanel>
+
+          {/* Security Settings Tab */}
+          <TabPanel value={activeTab} index={1}>
+            <Grid container spacing={4}>
+              <Grid item xs={12} md={6}>
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Security fontSize="small" color="primary" /> Authentication Settings
+                </Typography>
+
+                <Box sx={{ mb: 3 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={settings.require_email_verification || false}
+                        onChange={(e) => setSettings({ ...settings, require_email_verification: e.target.checked })}
+                        color="primary"
+                      />
+                    }
+                    label="Require Email Verification"
+                  />
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ ml: 6 }}>
+                    New users must verify their email before accessing the platform
+                  </Typography>
+                </Box>
+
+                <Box sx={{ mb: 3 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={settings.allow_password_reset || false}
+                        onChange={(e) => setSettings({ ...settings, allow_password_reset: e.target.checked })}
+                        color="primary"
+                      />
+                    }
+                    label="Allow Password Reset"
+                  />
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ ml: 6 }}>
+                    Allow users to reset their password via email OTP
+                  </Typography>
+                </Box>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Alert severity="info" icon={<Info />}>
+                  <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+                    Security Recommendations
+                  </Typography>
+                  <Typography variant="caption" component="div">
+                    <ul style={{ margin: 0, paddingLeft: 16 }}>
+                      <li>Enable email verification to prevent spam accounts</li>
+                      <li>Configure SMTP to enable password reset functionality</li>
+                      <li>Regularly review user access and permissions</li>
+                    </ul>
+                  </Typography>
+                </Alert>
+              </Grid>
+            </Grid>
+          </TabPanel>
+
+          {/* Google OAuth Tab */}
+          <TabPanel value={activeTab} index={2}>
+            <Grid container spacing={4}>
+              <Grid item xs={12} md={6}>
+                <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+                  <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Google sx={{ color: '#4285f4' }} /> Google OAuth Configuration
+                  </Typography>
+                  <Chip
+                    icon={settings.google_oauth_enabled ? <CheckCircle /> : <ErrorIcon />}
+                    label={settings.google_oauth_enabled ? 'Enabled' : 'Disabled'}
+                    color={settings.google_oauth_enabled ? 'success' : 'default'}
+                    size="small"
+                  />
+                </Box>
+
+                <Alert severity="info" sx={{ mb: 3 }}>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    <strong>Required for Google Sync Hub:</strong> Enables users to sync tasks, calendar, drive, and gmail.
+                  </Typography>
+                  <Typography variant="caption">
+                    Get credentials from{' '}
+                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">
+                      Google Cloud Console
+                    </a>
+                  </Typography>
+                </Alert>
+
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={settings.google_oauth_enabled || false}
+                      onChange={(e) => setSettings({ ...settings, google_oauth_enabled: e.target.checked })}
+                      color="primary"
+                    />
+                  }
+                  label="Enable Google OAuth"
+                  sx={{ mb: 3 }}
+                />
+
+                <TextField
+                  fullWidth
+                  label="Google Client ID"
+                  placeholder="your-client-id.apps.googleusercontent.com"
+                  value={settings.google_client_id || ''}
+                  onChange={(e) => setSettings({ ...settings, google_client_id: e.target.value })}
+                  disabled={!settings.google_oauth_enabled}
+                  sx={{ mb: 3 }}
+                  helperText="OAuth 2.0 Client ID from Google Cloud Console"
+                />
+
+                <TextField
+                  fullWidth
+                  type={showGoogleSecret ? 'text' : 'password'}
+                  label="Google Client Secret"
+                  placeholder={settings.google_client_secret_set ? '••••••••' : 'Enter client secret'}
+                  value={settings.google_client_secret || ''}
+                  onChange={(e) => setSettings({ ...settings, google_client_secret: e.target.value })}
+                  disabled={!settings.google_oauth_enabled}
+                  helperText={settings.google_client_secret_set ? 'Secret is set. Leave blank to keep current.' : 'OAuth 2.0 Client Secret'}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={() => setShowGoogleSecret(!showGoogleSecret)}
+                          edge="end"
+                          disabled={!settings.google_oauth_enabled}
+                        >
+                          {showGoogleSecret ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Paper sx={{ p: 3, bgcolor: 'grey.50', borderRadius: 2 }}>
+                  <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
+                    Setup Instructions
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" component="div">
+                    <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 2 }}>
+                      <li>Create a project in Google Cloud Console</li>
+                      <li>Enable APIs: Google Tasks, Calendar, Drive, Gmail</li>
+                      <li>Go to Credentials → Create OAuth 2.0 Client ID</li>
+                      <li>Select "Web application" as application type</li>
+                      <li>Add authorized redirect URI:</li>
+                    </ol>
+                  </Typography>
+                  <Box sx={{
+                    mt: 1,
+                    ml: 3,
+                    p: 1,
+                    pl: 1.5,
+                    bgcolor: 'white',
+                    borderRadius: 1,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 1
+                  }}>
+                    <Typography sx={{ fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>
+                      {window.location.origin}/dashboard/google-sync
+                    </Typography>
+                    <Tooltip title={copied ? 'Copied!' : 'Copy to clipboard'}>
+                      <IconButton
+                        size="small"
+                        onClick={handleCopyRedirectUri}
+                        color={copied ? 'success' : 'default'}
+                      >
+                        {copied ? <CheckCircle fontSize="small" /> : <ContentCopy fontSize="small" />}
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" component="div" sx={{ mt: 2 }}>
+                    <ol start={6} style={{ margin: 0, paddingLeft: 20, lineHeight: 2 }}>
+                      <li>Copy Client ID and Client Secret</li>
+                      <li>Paste them in the fields on the left</li>
+                      <li>Enable Google OAuth and save settings</li>
+                    </ol>
+                  </Typography>
+                </Paper>
+              </Grid>
+            </Grid>
+          </TabPanel>
+
+          {/* SMTP Email Tab */}
+          <TabPanel value={activeTab} index={3}>
+            <Grid container spacing={4}>
+              <Grid item xs={12} md={6}>
+                <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+                  <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Email color="primary" /> SMTP Configuration
+                  </Typography>
+                  <Chip
+                    icon={settings.smtp_enabled ? <CheckCircle /> : <ErrorIcon />}
+                    label={settings.smtp_enabled ? 'Enabled' : 'Disabled'}
+                    color={settings.smtp_enabled ? 'success' : 'default'}
+                    size="small"
+                  />
+                </Box>
+
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={settings.smtp_enabled || false}
+                      onChange={(e) => setSettings({ ...settings, smtp_enabled: e.target.checked })}
+                      color="primary"
+                    />
+                  }
+                  label="Enable SMTP Email Sending"
+                  sx={{ mb: 3 }}
+                />
+
+                <Grid container spacing={2} sx={{ mb: 2 }}>
+                  <Grid item xs={8}>
+                    <TextField
+                      fullWidth
+                      label="SMTP Host"
+                      placeholder="smtp.gmail.com"
+                      value={settings.smtp_host || ''}
+                      onChange={(e) => setSettings({ ...settings, smtp_host: e.target.value })}
+                      disabled={!settings.smtp_enabled}
+                    />
+                  </Grid>
+                  <Grid item xs={4}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Port"
+                      value={settings.smtp_port || 587}
+                      onChange={(e) => setSettings({ ...settings, smtp_port: parseInt(e.target.value) || 587 })}
+                      disabled={!settings.smtp_enabled}
+                    />
+                  </Grid>
+                </Grid>
+
+                <TextField
+                  fullWidth
+                  label="SMTP Username"
+                  placeholder="your-email@gmail.com"
+                  value={settings.smtp_username || ''}
+                  onChange={(e) => setSettings({ ...settings, smtp_username: e.target.value })}
+                  disabled={!settings.smtp_enabled}
+                  sx={{ mb: 2 }}
+                />
+
+                <TextField
+                  fullWidth
+                  type={showPassword ? 'text' : 'password'}
+                  label="SMTP Password"
+                  placeholder={settings.smtp_password_set ? '••••••••' : 'Enter password'}
+                  value={settings.smtp_password || ''}
+                  onChange={(e) => setSettings({ ...settings, smtp_password: e.target.value })}
+                  disabled={!settings.smtp_enabled}
+                  sx={{ mb: 2 }}
+                  helperText={settings.smtp_password_set ? 'Password is set. Leave blank to keep current password.' : 'Enter your SMTP password or app password'}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={() => setShowPassword(!showPassword)}
+                          edge="end"
+                          disabled={!settings.smtp_enabled}
+                        >
+                          {showPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+
+                <Box sx={{ mb: 2 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={settings.smtp_use_tls || false}
+                        onChange={(e) => setSettings({
+                          ...settings,
+                          smtp_use_tls: e.target.checked,
+                          smtp_use_ssl: e.target.checked ? false : settings.smtp_use_ssl
+                        })}
+                        disabled={!settings.smtp_enabled}
+                        size="small"
+                      />
+                    }
+                    label="Use TLS (Port 587)"
+                  />
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={settings.smtp_use_ssl || false}
+                        onChange={(e) => setSettings({
+                          ...settings,
+                          smtp_use_ssl: e.target.checked,
+                          smtp_use_tls: e.target.checked ? false : settings.smtp_use_tls
+                        })}
+                        disabled={!settings.smtp_enabled}
+                        size="small"
+                      />
+                    }
+                    label="Use SSL (Port 465)"
+                  />
+                </Box>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
+                  Sender Information
+                </Typography>
+                <Grid container spacing={2} sx={{ mb: 3 }}>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="From Email"
+                      placeholder="noreply@yourdomain.com"
+                      value={settings.smtp_from_email || ''}
+                      onChange={(e) => setSettings({ ...settings, smtp_from_email: e.target.value })}
+                      disabled={!settings.smtp_enabled}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="From Name"
+                      placeholder="NexPro Platform"
+                      value={settings.smtp_from_name || ''}
+                      onChange={(e) => setSettings({ ...settings, smtp_from_name: e.target.value })}
+                      disabled={!settings.smtp_enabled}
+                    />
+                  </Grid>
+                </Grid>
+
+                <Divider sx={{ my: 3 }} />
+
+                <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
+                  Test Email Configuration
+                </Typography>
+                <Box display="flex" gap={1} sx={{ mb: 1 }}>
+                  <TextField
+                    fullWidth
+                    label="Test Recipient Email"
+                    placeholder="test@example.com"
+                    value={testEmail}
+                    onChange={(e) => setTestEmail(e.target.value)}
+                    disabled={!settings.smtp_enabled || testing}
+                    size="small"
+                  />
+                  <Button
+                    variant="contained"
+                    startIcon={testing ? <CircularProgress size={16} /> : <Send />}
+                    onClick={handleTestEmail}
+                    disabled={!settings.smtp_enabled || testing || !testEmail}
+                    sx={{ minWidth: 130 }}
+                  >
+                    {testing ? 'Sending...' : 'Send Test'}
+                  </Button>
+                </Box>
+                <Typography variant="caption" color="text.secondary">
+                  Save settings first, then send a test email to verify configuration
+                </Typography>
+              </Grid>
+            </Grid>
+          </TabPanel>
+        </Box>
+      </Paper>
     </Box>
   );
 }

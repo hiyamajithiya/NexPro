@@ -12,26 +12,38 @@ from datetime import timedelta
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import io
+import logging
+
+# Audit logging
+from .utils.audit import AuditLogger, AuditAction
+
+audit_logger = logging.getLogger('nexpro.audit')
 from .models import (
     Organization, OrganizationEmail, Subscription,
     Client, WorkType, WorkTypeAssignment, ClientWorkMapping, WorkInstance,
     EmailTemplate, ReminderRule, ReminderInstance, Notification, TaskDocument,
     ReportConfiguration, EmailOTP, AuditLog, PlatformSettings, SubscriptionPlan,
-    CredentialVault
+    CredentialVault, GoogleConnection, GoogleSyncSettings, GoogleSyncLog,
+    GoogleTaskMapping, GoogleCalendarMapping, GoogleDriveMapping, GoogleAPIQuotaUsage,
+    SubTaskCategory
 )
 from .serializers import (
     OrganizationSerializer, OrganizationMinimalSerializer,
     OrganizationRegistrationSerializer, SubscriptionSerializer,
     OrganizationEmailSerializer, OrganizationEmailWriteSerializer,
     UserSerializer, ClientSerializer, WorkTypeSerializer,
-    WorkTypeAssignmentSerializer,
+    WorkTypeAssignmentSerializer, SubTaskCategorySerializer,
     ClientWorkMappingSerializer, WorkInstanceSerializer,
     EmailTemplateSerializer,
     ReminderRuleSerializer, ReminderInstanceSerializer,
     NotificationSerializer, CustomTokenObtainPairSerializer,
     TaskDocumentSerializer, ReportConfigurationSerializer,
     PlatformSettingsSerializer, SubscriptionPlanSerializer,
-    CredentialVaultSerializer, CredentialVaultDecryptedSerializer
+    CredentialVaultSerializer, CredentialVaultDecryptedSerializer,
+    GoogleConnectionSerializer, GoogleConnectionUpdateSerializer,
+    GoogleSyncSettingsSerializer, GoogleSyncLogSerializer,
+    GoogleTaskMappingSerializer, GoogleCalendarMappingSerializer,
+    GoogleDriveMappingSerializer, GoogleAPIQuotaUsageSerializer
 )
 from .permissions import (
     IsPlatformAdmin, IsOrganizationAdmin, IsAdminOrPartner,
@@ -1010,7 +1022,7 @@ class ClientViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def assign_work_types(self, request, pk=None):
-        """Assign multiple work types to a client and create initial work instances"""
+        """Assign multiple task categories to a client and create initial work instances"""
         client = self.get_object()
         work_type_ids = request.data.get('work_type_ids', [])
         start_from_period = request.data.get('start_from_period', '')
@@ -1033,14 +1045,14 @@ class ClientViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
         for work_type_id in work_type_ids:
             try:
-                # Get work type within same organization
+                # Get task category within same organization
                 work_type_qs = WorkType.objects.filter(id=work_type_id)
                 if organization:
                     work_type_qs = work_type_qs.filter(organization=organization)
                 work_type = work_type_qs.first()
 
                 if not work_type:
-                    errors.append(f'Work type with ID {work_type_id} not found')
+                    errors.append(f'Task category with ID {work_type_id} not found')
                     continue
 
                 # Check if mapping already exists
@@ -1055,7 +1067,7 @@ class ClientViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                         existing_mapping.save()
                         created_mappings.append(existing_mapping)
                     else:
-                        errors.append(f'Work type {work_type.work_name} already assigned')
+                        errors.append(f'Task category {work_type.work_name} already assigned')
                     continue
 
                 # Create new mapping
@@ -1072,7 +1084,7 @@ class ClientViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 created_mappings.append(client_work)
 
             except Exception as e:
-                errors.append(f'Error assigning work type {work_type_id}: {str(e)}')
+                errors.append(f'Error assigning task category {work_type_id}: {str(e)}')
 
         response_data = {
             'created_count': len(created_mappings),
@@ -1080,7 +1092,7 @@ class ClientViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         }
 
         if created_mappings:
-            response_data['message'] = f'Successfully assigned {len(created_mappings)} work type(s)'
+            response_data['message'] = f'Successfully assigned {len(created_mappings)} task category(s)'
             return Response(response_data, status=status.HTTP_201_CREATED)
         else:
             return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
@@ -1253,11 +1265,11 @@ class ClientViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
 
 # =============================================================================
-# WORK TYPE VIEWS
+# TASK CATEGORY VIEWS
 # =============================================================================
 
 class WorkTypeViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
-    """ViewSet for managing work types"""
+    """ViewSet for managing task categories"""
     queryset = WorkType.objects.all()
     serializer_class = WorkTypeSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
@@ -1267,7 +1279,7 @@ class WorkTypeViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def reminder_preview(self, request, pk=None):
-        """Get a preview of the reminder schedule for this work type"""
+        """Get a preview of the reminder schedule for this task category"""
         from .services.task_service import ReminderGenerationService
         from datetime import datetime
 
@@ -1299,8 +1311,8 @@ class WorkTypeViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def period_options(self, request, pk=None):
         """
-        Get period label options and default due date for a work type.
-        Returns relevant period options based on the work type's frequency.
+        Get period label options and default due date for a task category.
+        Returns relevant period options based on the task category's frequency.
         """
         from datetime import date
         from dateutil.relativedelta import relativedelta
@@ -1312,7 +1324,7 @@ class WorkTypeViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         period_options = []
         default_due_date = None
 
-        # Get period dates from work type method
+        # Get period dates from task category method
         period_info = work_type.get_period_dates(today)
         default_due_date = period_info['due_date'].isoformat()
 
@@ -1415,6 +1427,118 @@ class WorkTypeViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         last_day = calendar.monthrange(year, month)[1]
         actual_due_day = min(due_day, last_day)
         return date(year, month, actual_due_day).isoformat()
+
+
+# =============================================================================
+# SUBTASK CATEGORY VIEWS
+# =============================================================================
+
+class SubTaskCategoryViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
+    """ViewSet for managing subtask categories within task categories"""
+    queryset = SubTaskCategory.objects.all()
+    serializer_class = SubTaskCategorySerializer
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
+    filterset_fields = ['work_type', 'is_active', 'is_required']
+    search_fields = ['name', 'description']
+    ordering_fields = ['order', 'name', 'created_at']
+
+    def get_queryset(self):
+        """Filter subtasks by task category if specified"""
+        queryset = super().get_queryset()
+        work_type_id = self.request.query_params.get('work_type')
+        if work_type_id:
+            queryset = queryset.filter(work_type_id=work_type_id)
+        return queryset.select_related('work_type')
+
+    @action(detail=False, methods=['post'])
+    def bulk_create(self, request):
+        """Create multiple subtask categories at once"""
+        work_type_id = request.data.get('work_type')
+        subtasks_data = request.data.get('subtasks', [])
+
+        if not work_type_id:
+            return Response({'error': 'work_type is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Verify task category exists and belongs to organization
+        try:
+            work_type = WorkType.objects.get(
+                id=work_type_id,
+                organization=request.organization
+            )
+        except WorkType.DoesNotExist:
+            return Response({'error': 'Task category not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        created_subtasks = []
+        for idx, subtask_data in enumerate(subtasks_data):
+            subtask_data['work_type'] = work_type_id
+            subtask_data['organization'] = request.organization.id
+            if 'order' not in subtask_data:
+                subtask_data['order'] = idx
+
+            serializer = SubTaskCategorySerializer(data=subtask_data, context={'request': request})
+            if serializer.is_valid():
+                subtask = serializer.save(organization=request.organization)
+                created_subtasks.append(SubTaskCategorySerializer(subtask).data)
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Update task category to enable subtasks
+        work_type.has_subtasks = True
+        work_type.save(update_fields=['has_subtasks'])
+
+        return Response({
+            'created': len(created_subtasks),
+            'subtasks': created_subtasks
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'])
+    def reorder(self, request):
+        """Reorder subtask categories"""
+        subtask_orders = request.data.get('orders', [])
+
+        for order_data in subtask_orders:
+            subtask_id = order_data.get('id')
+            new_order = order_data.get('order')
+            if subtask_id and new_order is not None:
+                SubTaskCategory.objects.filter(
+                    id=subtask_id,
+                    organization=request.organization
+                ).update(order=new_order)
+
+        return Response({'status': 'reordered'})
+
+    @action(detail=True, methods=['post'])
+    def duplicate(self, request, pk=None):
+        """Duplicate a subtask category"""
+        subtask = self.get_object()
+
+        # Create a copy with modified name
+        new_subtask = SubTaskCategory.objects.create(
+            organization=subtask.organization,
+            work_type=subtask.work_type,
+            name=f"{subtask.name} (Copy)",
+            description=subtask.description,
+            order=subtask.order + 1,
+            is_active=subtask.is_active,
+            is_required=subtask.is_required,
+            is_auto_driven=subtask.is_auto_driven,
+            due_days_before_parent=subtask.due_days_before_parent,
+            enable_client_reminders=subtask.enable_client_reminders,
+            client_reminder_start_day=subtask.client_reminder_start_day,
+            client_reminder_end_day=subtask.client_reminder_end_day,
+            client_reminder_frequency_type=subtask.client_reminder_frequency_type,
+            client_reminder_interval_days=subtask.client_reminder_interval_days,
+            client_reminder_weekdays=subtask.client_reminder_weekdays,
+            enable_employee_reminders=subtask.enable_employee_reminders,
+            employee_notification_type=subtask.employee_notification_type,
+            employee_reminder_start_day=subtask.employee_reminder_start_day,
+            employee_reminder_end_day=subtask.employee_reminder_end_day,
+            employee_reminder_frequency_type=subtask.employee_reminder_frequency_type,
+            employee_reminder_interval_days=subtask.employee_reminder_interval_days,
+            employee_reminder_weekdays=subtask.employee_reminder_weekdays,
+        )
+
+        return Response(SubTaskCategorySerializer(new_subtask).data, status=status.HTTP_201_CREATED)
 
 
 # =============================================================================
@@ -1827,11 +1951,11 @@ class TaskDocumentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
 
 # =============================================================================
-# WORK TYPE ASSIGNMENT VIEWS
+# TASK CATEGORY ASSIGNMENT VIEWS
 # =============================================================================
 
 class WorkTypeAssignmentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
-    """ViewSet for managing work type to employee assignments"""
+    """ViewSet for managing task category to employee assignments"""
     queryset = WorkTypeAssignment.objects.select_related('work_type', 'employee', 'assigned_by').all()
     serializer_class = WorkTypeAssignmentSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
@@ -1839,7 +1963,7 @@ class WorkTypeAssignmentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def by_employee(self, request):
-        """Get all work type assignments grouped by employee"""
+        """Get all task category assignments grouped by employee"""
         employee_id = request.query_params.get('employee_id')
         qs = self.get_queryset().filter(is_active=True)
 
@@ -1857,7 +1981,7 @@ class WorkTypeAssignmentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def by_work_type(self, request):
-        """Get all assignments for a specific work type"""
+        """Get all assignments for a specific task category"""
         work_type_id = request.query_params.get('work_type_id')
         if not work_type_id:
             return Response(
@@ -1874,7 +1998,7 @@ class WorkTypeAssignmentViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def bulk_assign(self, request):
-        """Assign multiple work types to an employee"""
+        """Assign multiple task categories to an employee"""
         employee_id = request.data.get('employee_id')
         work_type_ids = request.data.get('work_type_ids', [])
 
@@ -2590,6 +2714,14 @@ class PlatformAdminViewSet(viewsets.ViewSet):
         platform_settings_obj = PlatformSettings.get_settings()
 
         if request.method == 'GET':
+            # Audit log for viewing settings
+            AuditLogger.log_from_request(
+                action=AuditAction.PLATFORM_SETTINGS_VIEW,
+                request=request,
+                success=True,
+                resource_type='PlatformSettings',
+                resource_id=platform_settings_obj.id
+            )
             serializer = PlatformSettingsSerializer(platform_settings_obj)
             return Response(serializer.data)
         else:
@@ -2600,8 +2732,40 @@ class PlatformAdminViewSet(viewsets.ViewSet):
                 partial=request.method == 'PATCH'
             )
             if serializer.is_valid():
+                # Determine which settings are being changed
+                changed_fields = list(request.data.keys())
+                is_smtp_change = any(f.startswith('smtp_') for f in changed_fields)
+                is_google_change = any(f.startswith('google_') for f in changed_fields)
+
                 serializer.save()
+
+                # Audit log for updating settings
+                audit_action = AuditAction.PLATFORM_SETTINGS_UPDATE
+                if is_smtp_change:
+                    audit_action = AuditAction.SMTP_CONFIG_UPDATE
+                elif is_google_change:
+                    audit_action = AuditAction.GOOGLE_OAUTH_CONFIG_UPDATE
+
+                AuditLogger.log_from_request(
+                    action=audit_action,
+                    request=request,
+                    success=True,
+                    resource_type='PlatformSettings',
+                    resource_id=platform_settings_obj.id,
+                    details={'changed_fields': changed_fields}
+                )
+
                 return Response(serializer.data)
+
+            # Log failed update attempt
+            AuditLogger.log_from_request(
+                action=AuditAction.PLATFORM_SETTINGS_UPDATE,
+                request=request,
+                success=False,
+                resource_type='PlatformSettings',
+                resource_id=platform_settings_obj.id,
+                details={'errors': serializer.errors}
+            )
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=['post'], url_path='test_smtp')
@@ -2715,22 +2879,52 @@ Best regards,
             )
             server.quit()
 
+            # Audit log for successful test email
+            AuditLogger.log_from_request(
+                action=AuditAction.SMTP_TEST_EMAIL,
+                request=request,
+                success=True,
+                resource_type='PlatformSettings',
+                details={'recipient': recipient_email}
+            )
+
             return Response({
                 'message': f'Test email sent successfully to {recipient_email}',
                 'recipient': recipient_email
             })
 
         except smtplib.SMTPAuthenticationError as e:
+            AuditLogger.log_from_request(
+                action=AuditAction.SMTP_TEST_EMAIL,
+                request=request,
+                success=False,
+                resource_type='PlatformSettings',
+                details={'recipient': recipient_email, 'error': 'Authentication failed'}
+            )
             return Response(
                 {'error': f'SMTP Authentication failed. Please check your username and password. Error: {str(e)}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         except smtplib.SMTPConnectError as e:
+            AuditLogger.log_from_request(
+                action=AuditAction.SMTP_TEST_EMAIL,
+                request=request,
+                success=False,
+                resource_type='PlatformSettings',
+                details={'recipient': recipient_email, 'error': 'Connection failed'}
+            )
             return Response(
                 {'error': f'Failed to connect to SMTP server. Please check host and port. Error: {str(e)}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
+            AuditLogger.log_from_request(
+                action=AuditAction.SMTP_TEST_EMAIL,
+                request=request,
+                success=False,
+                resource_type='PlatformSettings',
+                details={'recipient': recipient_email, 'error': str(e)}
+            )
             return Response(
                 {'error': f'Failed to send test email: {str(e)}'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -2936,6 +3130,223 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
             'plans': SubscriptionPlanSerializer(SubscriptionPlan.objects.all(), many=True).data
         })
 
+    @action(detail=False, methods=['get'])
+    def sync_frequency_choices(self, request):
+        """Get available sync frequency options for plans"""
+        choices = [
+            {'value': value, 'label': label}
+            for value, label in SubscriptionPlan.SYNC_FREQUENCY_CHOICES
+        ]
+        return Response(choices)
+
+
+# =============================================================================
+# GOOGLE API QUOTA MONITORING (Super Admin)
+# =============================================================================
+
+class GoogleQuotaViewSet(viewsets.ViewSet):
+    """
+    ViewSet for monitoring Google API quota usage.
+    Only accessible by platform admins.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsPlatformAdmin]
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """Get current day's quota usage summary"""
+        from datetime import datetime
+        date_str = request.query_params.get('date', None)
+
+        if date_str:
+            try:
+                date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return Response(
+                    {'error': 'Invalid date format. Use YYYY-MM-DD'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            date = None
+
+        summary = GoogleAPIQuotaUsage.get_daily_summary(date)
+
+        # Add capacity estimates
+        platform_settings = PlatformSettings.get_settings()
+        tasks_usage = summary['apis'].get('TASKS', {}).get('queries', 0)
+        tasks_quota = platform_settings.google_tasks_daily_quota
+
+        # Estimate tenant capacity based on Tasks API (bottleneck)
+        if tasks_usage > 0:
+            avg_queries_per_tenant = tasks_usage / max(1, summary['apis'].get('TASKS', {}).get('unique_organizations', 1))
+            estimated_capacity = int(tasks_quota / max(1, avg_queries_per_tenant))
+        else:
+            # Default estimate: hourly sync = ~50 queries/user/day
+            estimated_capacity = int(tasks_quota / 50)
+
+        summary['total_queries'] = sum(
+            api.get('queries', 0) for api in summary['apis'].values()
+        )
+        summary['estimated_tenant_capacity'] = estimated_capacity
+        summary['quota_settings'] = {
+            'tasks_daily_quota': platform_settings.google_tasks_daily_quota,
+            'calendar_daily_quota': platform_settings.google_calendar_daily_quota,
+            'drive_daily_quota': platform_settings.google_drive_daily_quota,
+            'gmail_daily_quota': platform_settings.google_gmail_daily_quota,
+            'warning_threshold': platform_settings.quota_warning_threshold,
+            'critical_threshold': platform_settings.quota_critical_threshold,
+        }
+
+        return Response(summary)
+
+    @action(detail=False, methods=['get'])
+    def history(self, request):
+        """Get quota usage history for the past N days"""
+        from datetime import timedelta
+        from django.utils import timezone
+
+        days = int(request.query_params.get('days', 7))
+        days = min(days, 90)  # Max 90 days
+
+        end_date = timezone.now().date()
+        start_date = end_date - timedelta(days=days)
+
+        history = []
+        current_date = start_date
+
+        while current_date <= end_date:
+            daily_summary = GoogleAPIQuotaUsage.get_daily_summary(current_date)
+            history.append(daily_summary)
+            current_date += timedelta(days=1)
+
+        return Response({
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
+            'days': days,
+            'history': history
+        })
+
+    @action(detail=False, methods=['get'])
+    def by_api(self, request):
+        """Get detailed usage breakdown by API type"""
+        from datetime import timedelta
+        from django.utils import timezone
+        from django.db.models import Sum
+
+        api_type = request.query_params.get('api_type', 'TASKS')
+        days = int(request.query_params.get('days', 7))
+
+        end_date = timezone.now().date()
+        start_date = end_date - timedelta(days=days)
+
+        usage_data = GoogleAPIQuotaUsage.objects.filter(
+            api_type=api_type,
+            date__gte=start_date,
+            date__lte=end_date
+        ).order_by('date')
+
+        serializer = GoogleAPIQuotaUsageSerializer(usage_data, many=True)
+
+        totals = usage_data.aggregate(
+            total_queries=Sum('queries_count'),
+            total_failed=Sum('failed_requests'),
+            total_rate_limits=Sum('rate_limit_hits')
+        )
+
+        return Response({
+            'api_type': api_type,
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
+            'totals': totals,
+            'daily_usage': serializer.data
+        })
+
+    @action(detail=False, methods=['get'])
+    def alerts(self, request):
+        """Get current quota alerts/warnings"""
+        platform_settings = PlatformSettings.get_settings()
+        summary = GoogleAPIQuotaUsage.get_daily_summary()
+
+        alerts = []
+        for api_type, data in summary['apis'].items():
+            percentage = data.get('percentage', 0)
+            if percentage >= platform_settings.quota_critical_threshold:
+                alerts.append({
+                    'level': 'critical',
+                    'api': api_type,
+                    'message': f'{api_type} API usage is at {percentage}% of daily quota',
+                    'percentage': percentage,
+                    'queries': data.get('queries', 0),
+                    'quota': data.get('quota_limit', 0)
+                })
+            elif percentage >= platform_settings.quota_warning_threshold:
+                alerts.append({
+                    'level': 'warning',
+                    'api': api_type,
+                    'message': f'{api_type} API usage is at {percentage}% of daily quota',
+                    'percentage': percentage,
+                    'queries': data.get('queries', 0),
+                    'quota': data.get('quota_limit', 0)
+                })
+
+        # Check for rate limit hits
+        for api_type, data in summary['apis'].items():
+            rate_limits = data.get('rate_limits', 0)
+            if rate_limits > 0:
+                alerts.append({
+                    'level': 'warning',
+                    'api': api_type,
+                    'message': f'{api_type} API hit rate limits {rate_limits} times today',
+                    'rate_limit_hits': rate_limits
+                })
+
+        return Response({
+            'date': summary['date'],
+            'alerts_count': len(alerts),
+            'alerts': alerts
+        })
+
+    @action(detail=False, methods=['post'])
+    def update_quotas(self, request):
+        """Update quota limits (Super Admin only)"""
+        platform_settings = PlatformSettings.get_settings()
+
+        # Update fields if provided
+        if 'google_tasks_daily_quota' in request.data:
+            platform_settings.google_tasks_daily_quota = request.data['google_tasks_daily_quota']
+        if 'google_calendar_daily_quota' in request.data:
+            platform_settings.google_calendar_daily_quota = request.data['google_calendar_daily_quota']
+        if 'google_drive_daily_quota' in request.data:
+            platform_settings.google_drive_daily_quota = request.data['google_drive_daily_quota']
+        if 'google_gmail_daily_quota' in request.data:
+            platform_settings.google_gmail_daily_quota = request.data['google_gmail_daily_quota']
+        if 'quota_warning_threshold' in request.data:
+            platform_settings.quota_warning_threshold = request.data['quota_warning_threshold']
+        if 'quota_critical_threshold' in request.data:
+            platform_settings.quota_critical_threshold = request.data['quota_critical_threshold']
+
+        platform_settings.save()
+
+        # Audit log
+        AuditLogger.log_from_request(
+            action=AuditAction.PLATFORM_SETTINGS_UPDATE,
+            request=request,
+            success=True,
+            resource_type='PlatformSettings',
+            details={'updated': 'Google API quota settings'}
+        )
+
+        return Response({
+            'message': 'Quota settings updated successfully',
+            'settings': {
+                'google_tasks_daily_quota': platform_settings.google_tasks_daily_quota,
+                'google_calendar_daily_quota': platform_settings.google_calendar_daily_quota,
+                'google_drive_daily_quota': platform_settings.google_drive_daily_quota,
+                'google_gmail_daily_quota': platform_settings.google_gmail_daily_quota,
+                'quota_warning_threshold': platform_settings.quota_warning_threshold,
+                'quota_critical_threshold': platform_settings.quota_critical_threshold,
+            }
+        })
+
 
 # =============================================================================
 # REPORT CONFIGURATION VIEWS
@@ -3102,3 +3513,269 @@ class ReportConfigurationViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         )
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+
+
+# =============================================================================
+# GOOGLE SYNC HUB VIEWSET
+# =============================================================================
+
+class GoogleSyncHubViewSet(viewsets.ViewSet):
+    """
+    ViewSet for Google Sync Hub functionality.
+    Handles OAuth flow, sync operations, and settings management.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def connection_status(self, request):
+        """Get current user's Google connection status and settings."""
+        user = request.user
+        organization = user.organization
+
+        connection, created = GoogleConnection.objects.get_or_create(
+            user=user, defaults={'organization': organization}
+        )
+
+        sync_settings = None
+        if organization:
+            sync_settings, _ = GoogleSyncSettings.objects.get_or_create(organization=organization)
+
+        return Response({
+            'connection': GoogleConnectionSerializer(connection).data,
+            'sync_settings': GoogleSyncSettingsSerializer(sync_settings).data if sync_settings else None,
+            'is_admin': user.role in ['ADMIN', 'PARTNER'],
+        })
+
+    def _get_google_redirect_uri(self, request):
+        """
+        Get the redirect URI for Google OAuth.
+        Uses frontend URL for better UX (auto-capture code from URL).
+        """
+        # Get frontend URL from settings or use default
+        from django.conf import settings
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+        return f"{frontend_url}/dashboard/google-sync"
+
+    @action(detail=False, methods=['get'])
+    def auth_url(self, request):
+        """Generate Google OAuth authorization URL."""
+        from .services.google_oauth_service import GoogleOAuthService
+        try:
+            redirect_uri = self._get_google_redirect_uri(request)
+            auth_url, state = GoogleOAuthService.get_authorization_url(redirect_uri=redirect_uri, state=str(request.user.id))
+            return Response({'auth_url': auth_url, 'state': state})
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'])
+    def connect(self, request):
+        """Complete OAuth flow with authorization code."""
+        from .services.google_oauth_service import GoogleOAuthService
+        code = request.data.get('code')
+        if not code:
+            return Response({'error': 'Authorization code is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            redirect_uri = self._get_google_redirect_uri(request)
+            credentials = GoogleOAuthService.exchange_code_for_tokens(code, redirect_uri)
+            connection, _ = GoogleConnection.objects.get_or_create(user=request.user, defaults={'organization': request.user.organization})
+            GoogleOAuthService.save_credentials_to_connection(connection, credentials)
+            return Response({'success': True, 'connection': GoogleConnectionSerializer(connection).data})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'])
+    def disconnect(self, request):
+        """Disconnect Google account."""
+        from .services.google_oauth_service import GoogleOAuthService
+        try:
+            connection = GoogleConnection.objects.get(user=request.user)
+            GoogleOAuthService.disconnect(connection)
+            return Response({'success': True, 'message': 'Google account disconnected successfully'})
+        except GoogleConnection.DoesNotExist:
+            return Response({'error': 'No Google connection found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'])
+    def update_services(self, request):
+        """Update enabled Google services (tasks, calendar, drive, gmail)."""
+        try:
+            connection = GoogleConnection.objects.get(user=request.user)
+            if connection.status != 'CONNECTED':
+                return Response({'error': 'Google account not connected'}, status=status.HTTP_400_BAD_REQUEST)
+            serializer = GoogleConnectionUpdateSerializer(connection, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response({'success': True, 'connection': GoogleConnectionSerializer(connection).data})
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except GoogleConnection.DoesNotExist:
+            return Response({'error': 'No Google connection found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['get', 'put'], url_path='sync-settings')
+    def sync_settings(self, request):
+        """Get or update organization Google sync settings (Admin only)."""
+        user = request.user
+        if user.role not in ['ADMIN', 'PARTNER']:
+            return Response({'error': 'Only admins can manage sync settings'}, status=status.HTTP_403_FORBIDDEN)
+        sync_settings, _ = GoogleSyncSettings.objects.get_or_create(organization=user.organization)
+        if request.method == 'GET':
+            return Response(GoogleSyncSettingsSerializer(sync_settings).data)
+        serializer = GoogleSyncSettingsSerializer(sync_settings, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'])
+    def sync_all_tasks(self, request):
+        """Manually sync all tasks to Google Tasks and/or Calendar."""
+        from .services.google_tasks_service import GoogleTasksService
+        from .services.google_calendar_service import GoogleCalendarService
+        try:
+            connection = GoogleConnection.objects.get(user=request.user)
+            if connection.status != 'CONNECTED':
+                return Response({'error': 'Google account not connected'}, status=status.HTTP_400_BAD_REQUEST)
+            results = {'tasks': {'synced': 0, 'errors': 0}, 'calendar': {'synced': 0, 'errors': 0}}
+            if connection.tasks_enabled:
+                tasks_service = GoogleTasksService(connection)
+                synced, errors = tasks_service.sync_all_tasks()
+                results['tasks'] = {'synced': synced, 'errors': errors}
+            if connection.calendar_enabled:
+                calendar_service = GoogleCalendarService(connection)
+                synced, errors = calendar_service.sync_all_tasks()
+                results['calendar'] = {'synced': synced, 'errors': errors}
+            return Response({'success': True, 'results': results})
+        except GoogleConnection.DoesNotExist:
+            return Response({'error': 'No Google connection found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'])
+    def sync_task(self, request):
+        """Sync a specific task to Google Tasks and/or Calendar."""
+        from .services.google_tasks_service import GoogleTasksService
+        from .services.google_calendar_service import GoogleCalendarService
+        task_id = request.data.get('task_id')
+        if not task_id:
+            return Response({'error': 'task_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            connection = GoogleConnection.objects.get(user=request.user)
+            work_instance = WorkInstance.objects.get(id=task_id, organization=request.user.organization)
+            if connection.status != 'CONNECTED':
+                return Response({'error': 'Google account not connected'}, status=status.HTTP_400_BAD_REQUEST)
+            results = {}
+            if connection.tasks_enabled:
+                tasks_service = GoogleTasksService(connection)
+                mapping = tasks_service.sync_task_to_google(work_instance)
+                results['task_mapping'] = GoogleTaskMappingSerializer(mapping).data
+            if connection.calendar_enabled:
+                calendar_service = GoogleCalendarService(connection)
+                mapping = calendar_service.sync_task_to_calendar(work_instance)
+                results['calendar_mapping'] = GoogleCalendarMappingSerializer(mapping).data
+            return Response({'success': True, 'results': results})
+        except GoogleConnection.DoesNotExist:
+            return Response({'error': 'No Google connection found'}, status=status.HTTP_404_NOT_FOUND)
+        except WorkInstance.DoesNotExist:
+            return Response({'error': 'Task not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'])
+    def sync_logs(self, request):
+        """Get sync logs for the current user."""
+        logs = GoogleSyncLog.objects.filter(user=request.user).order_by('-created_at')[:100]
+        return Response(GoogleSyncLogSerializer(logs, many=True).data)
+
+    @action(detail=False, methods=['get'])
+    def task_mappings(self, request):
+        """Get all task mappings for the current user."""
+        mappings = GoogleTaskMapping.objects.filter(user=request.user).select_related('work_instance__client_work__client', 'work_instance__client_work__work_type')
+        return Response(GoogleTaskMappingSerializer(mappings, many=True).data)
+
+    @action(detail=False, methods=['get'])
+    def calendar_mappings(self, request):
+        """Get all calendar mappings for the current user."""
+        mappings = GoogleCalendarMapping.objects.filter(user=request.user).select_related('work_instance__client_work__client', 'work_instance__client_work__work_type')
+        return Response(GoogleCalendarMappingSerializer(mappings, many=True).data)
+
+    @action(detail=False, methods=['get'])
+    def drive_folders(self, request):
+        """Get all Drive folder mappings for the organization."""
+        mappings = GoogleDriveMapping.objects.filter(organization=request.user.organization).select_related('client')
+        return Response(GoogleDriveMappingSerializer(mappings, many=True).data)
+
+    @action(detail=False, methods=['post'])
+    def create_client_folders(self, request):
+        """Create Google Drive folder structure for a client."""
+        from .services.google_drive_service import GoogleDriveService
+        client_id = request.data.get('client_id')
+        if not client_id:
+            return Response({'error': 'client_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            connection = GoogleConnection.objects.get(user=request.user)
+            client = Client.objects.get(id=client_id, organization=request.user.organization)
+            if connection.status != 'CONNECTED' or not connection.drive_enabled:
+                return Response({'error': 'Google Drive not enabled'}, status=status.HTTP_400_BAD_REQUEST)
+            drive_service = GoogleDriveService(connection)
+            mapping = drive_service.create_client_folder_structure(client)
+            return Response({'success': True, 'mapping': GoogleDriveMappingSerializer(mapping).data})
+        except GoogleConnection.DoesNotExist:
+            return Response({'error': 'No Google connection found'}, status=status.HTTP_404_NOT_FOUND)
+        except Client.DoesNotExist:
+            return Response({'error': 'Client not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'])
+    def task_lists(self, request):
+        """Get available Google Task lists."""
+        from .services.google_oauth_service import GoogleOAuthService
+        try:
+            connection = GoogleConnection.objects.get(user=request.user)
+            if connection.status != 'CONNECTED':
+                return Response({'error': 'Google account not connected'}, status=status.HTTP_400_BAD_REQUEST)
+            credentials = GoogleOAuthService.get_credentials_from_connection(connection)
+            task_lists = GoogleOAuthService.get_task_lists(credentials)
+            return Response({'task_lists': task_lists, 'current_list_id': connection.tasks_list_id})
+        except GoogleConnection.DoesNotExist:
+            return Response({'error': 'No Google connection found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['get'])
+    def calendars(self, request):
+        """Get available Google Calendars."""
+        from .services.google_oauth_service import GoogleOAuthService
+        try:
+            connection = GoogleConnection.objects.get(user=request.user)
+            if connection.status != 'CONNECTED':
+                return Response({'error': 'Google account not connected'}, status=status.HTTP_400_BAD_REQUEST)
+            credentials = GoogleOAuthService.get_credentials_from_connection(connection)
+            calendars = GoogleOAuthService.get_calendars(credentials)
+            return Response({'calendars': calendars, 'current_calendar_id': connection.calendar_id})
+        except GoogleConnection.DoesNotExist:
+            return Response({'error': 'No Google connection found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'])
+    def set_task_list(self, request):
+        """Set the default Google Task list for syncing."""
+        task_list_id = request.data.get('task_list_id')
+        if not task_list_id:
+            return Response({'error': 'task_list_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            connection = GoogleConnection.objects.get(user=request.user)
+            connection.tasks_list_id = task_list_id
+            connection.save(update_fields=['tasks_list_id'])
+            return Response({'success': True, 'connection': GoogleConnectionSerializer(connection).data})
+        except GoogleConnection.DoesNotExist:
+            return Response({'error': 'No Google connection found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'])
+    def set_calendar(self, request):
+        """Set the default Google Calendar for syncing."""
+        calendar_id = request.data.get('calendar_id')
+        if not calendar_id:
+            return Response({'error': 'calendar_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            connection = GoogleConnection.objects.get(user=request.user)
+            connection.calendar_id = calendar_id
+            connection.save(update_fields=['calendar_id'])
+            return Response({'success': True, 'connection': GoogleConnectionSerializer(connection).data})
+        except GoogleConnection.DoesNotExist:
+            return Response({'error': 'No Google connection found'}, status=status.HTTP_404_NOT_FOUND)

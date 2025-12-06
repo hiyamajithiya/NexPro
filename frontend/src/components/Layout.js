@@ -25,7 +25,6 @@ import {
   Dashboard as DashboardIcon,
   People as PeopleIcon,
   Assignment as AssignmentIcon,
-  CalendarMonth as CalendarIcon,
   Assessment as ReportsIcon,
   Work as WorkIcon,
   Email as EmailIcon,
@@ -42,6 +41,7 @@ import {
   Warning as WarningIcon,
   Error as ErrorIcon,
   Info as InfoIcon,
+  SyncAlt as SyncIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { notificationsAPI } from '../services/api';
@@ -53,12 +53,12 @@ const allMenuItems = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard', roles: ['ADMIN', 'PARTNER', 'MANAGER', 'STAFF'] },
   { text: 'Clients', icon: <PeopleIcon />, path: '/dashboard/clients', roles: ['ADMIN', 'PARTNER', 'MANAGER'] },
   { text: 'Tasks', icon: <AssignmentIcon />, path: '/dashboard/tasks', roles: ['ADMIN', 'PARTNER', 'MANAGER', 'STAFF'] },
-  { text: 'Calendar', icon: <CalendarIcon />, path: '/dashboard/calendar', roles: ['ADMIN', 'PARTNER', 'MANAGER', 'STAFF'] },
   { text: 'Reports', icon: <ReportsIcon />, path: '/dashboard/reports', roles: ['ADMIN', 'PARTNER', 'MANAGER'] },
-  { text: 'Work Types', icon: <WorkIcon />, path: '/dashboard/work-types', roles: ['ADMIN', 'PARTNER'] },
+  { text: 'Task Categories', icon: <WorkIcon />, path: '/dashboard/work-types', roles: ['ADMIN', 'PARTNER'] },
   { text: 'Employees', icon: <BadgeIcon />, path: '/dashboard/employees', roles: ['ADMIN', 'PARTNER'] },
   { text: 'Templates', icon: <EmailIcon />, path: '/dashboard/templates', roles: ['ADMIN', 'PARTNER'] },
   { text: 'Credentials', icon: <SecurityIcon />, path: '/dashboard/credentials', roles: ['ADMIN', 'PARTNER'] },
+  { text: 'Google Sync', icon: <SyncIcon />, path: '/dashboard/google-sync', roles: ['ADMIN', 'PARTNER', 'MANAGER', 'STAFF'] },
   { text: 'Settings', icon: <SettingsIcon />, path: '/dashboard/settings', roles: ['ADMIN', 'PARTNER'] },
   { text: 'Help & Guide', icon: <HelpIcon />, path: '/dashboard/help', roles: ['ADMIN', 'PARTNER', 'MANAGER', 'STAFF'] },
 ];

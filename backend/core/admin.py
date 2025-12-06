@@ -60,7 +60,7 @@ class WorkInstanceAdmin(admin.ModelAdmin):
 
     def get_work_type(self, obj):
         return obj.client_work.work_type.work_name
-    get_work_type.short_description = 'Work Type'
+    get_work_type.short_description = 'Task Category'
     get_work_type.admin_order_field = 'client_work__work_type__work_name'
 
 
@@ -106,4 +106,4 @@ class ReminderInstanceAdmin(admin.ModelAdmin):
 
     def get_work_type(self, obj):
         return obj.work_instance.client_work.work_type.work_name
-    get_work_type.short_description = 'Work Type'
+    get_work_type.short_description = 'Task Category'

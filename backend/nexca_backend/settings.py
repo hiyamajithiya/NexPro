@@ -173,6 +173,9 @@ SIMPLE_JWT = {
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
 }
 
+# Frontend URL (for OAuth redirect)
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
+
 # CORS Settings - Production-ready
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=DEBUG, cast=bool)
 CORS_ALLOWED_ORIGINS = config(
@@ -255,6 +258,10 @@ FERNET_KEY = config('FERNET_KEY', default='')
 # Firm Settings
 FIRM_NAME = config('FIRM_NAME', default='Your Professional Firm Name')
 
+# Google OAuth Settings
+GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID', default='')
+GOOGLE_CLIENT_SECRET = config('GOOGLE_CLIENT_SECRET', default='')
+
 # Logging Configuration for IT Act compliance (audit trail)
 LOGGING = {
     'version': 1,
@@ -335,6 +342,11 @@ LOGGING = {
         },
         'core.audit': {
             'handlers': ['audit_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'nexpro.audit': {
+            'handlers': ['audit_file', 'console'],
             'level': 'INFO',
             'propagate': False,
         },

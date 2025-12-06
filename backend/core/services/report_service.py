@@ -283,7 +283,7 @@ class ReportService:
 
     @staticmethod
     def create_work_type_chart(work_type_wise):
-        """Create a bar chart showing work type-wise task distribution"""
+        """Create a bar chart showing task category-wise task distribution"""
         if not work_type_wise:
             return None
 
@@ -291,7 +291,7 @@ class ReportService:
         totals = []
         completed = []
 
-        for wt in work_type_wise[:8]:  # Top 8 work types
+        for wt in work_type_wise[:8]:  # Top 8 task categories
             name = wt.get('client_work__work_type__work_name', 'Unknown')
             work_types.append(name[:15])  # Truncate long names
             totals.append(wt.get('total', 0))
@@ -310,9 +310,9 @@ class ReportService:
         bars2 = ax.bar([i + width/2 for i in x], completed, width,
                        label='Completed', color='#4CAF50')
 
-        ax.set_xlabel('Work Type')
+        ax.set_xlabel('Task Category')
         ax.set_ylabel('Number of Tasks')
-        ax.set_title('Work Type-wise Task Distribution', fontsize=12, fontweight='bold')
+        ax.set_title('Task Category-wise Task Distribution', fontsize=12, fontweight='bold')
         ax.set_xticks(x)
         ax.set_xticklabels(work_types, rotation=45, ha='right')
         ax.legend()
@@ -472,9 +472,9 @@ class ReportService:
             elements.append(emp_table)
             elements.append(Spacer(1, 20))
 
-        # Work Type-wise breakdown
+        # Task Category-wise breakdown
         if report_config.include_work_type_wise and data['work_type_wise']:
-            elements.append(Paragraph("Work Type-wise Task Breakdown", styles['SectionTitle']))
+            elements.append(Paragraph("Task Category-wise Task Breakdown", styles['SectionTitle']))
 
             # Add chart if enabled
             if report_config.include_charts:
@@ -485,7 +485,7 @@ class ReportService:
                     elements.append(Spacer(1, 10))
 
             # Table
-            wt_data = [['Work Type', 'Total', 'Completed', 'Pending', 'Overdue']]
+            wt_data = [['Task Category', 'Total', 'Completed', 'Pending', 'Overdue']]
             for wt in data['work_type_wise'][:15]:
                 name = wt.get('client_work__work_type__work_name', 'Unknown')
                 form = wt.get('client_work__work_type__statutory_form', '')
@@ -554,7 +554,7 @@ class ReportService:
             elements.append(PageBreak())
             elements.append(Paragraph("Overdue Tasks", styles['SectionTitle']))
 
-            overdue_data = [['Client', 'Work Type', 'Period', 'Due Date', 'Assigned To']]
+            overdue_data = [['Client', 'Task Category', 'Period', 'Due Date', 'Assigned To']]
             for task in data['overdue_tasks'][:30]:
                 assigned = f"{task.get('assigned_to__first_name', '') or ''} {task.get('assigned_to__last_name', '') or ''}".strip()
                 if not assigned:
@@ -594,7 +594,7 @@ class ReportService:
         if report_config.include_upcoming_dues and data['upcoming_tasks']:
             elements.append(Paragraph("Upcoming Due Tasks (Next 7 Days)", styles['SectionTitle']))
 
-            upcoming_data = [['Client', 'Work Type', 'Period', 'Due Date', 'Assigned To']]
+            upcoming_data = [['Client', 'Task Category', 'Period', 'Due Date', 'Assigned To']]
             for task in data['upcoming_tasks'][:20]:
                 assigned = f"{task.get('assigned_to__first_name', '') or ''} {task.get('assigned_to__last_name', '') or ''}".strip()
                 if not assigned:
@@ -915,7 +915,7 @@ NexCA Report System
         report_type_labels = {
             'TASK_SUMMARY': 'Task Summary Report',
             'CLIENT_SUMMARY': 'Client Summary Report',
-            'WORK_TYPE_SUMMARY': 'Work Type Summary Report',
+            'WORK_TYPE_SUMMARY': 'Task Category Summary Report',
             'STAFF_PRODUCTIVITY': 'Staff Productivity Report',
             'STATUS_ANALYSIS': 'Status Analysis Report',
         }
@@ -1013,9 +1013,9 @@ NexCA Report System
             elements.append(client_table)
             elements.append(Spacer(1, 20))
 
-        # Work Type-wise breakdown
+        # Task Category-wise breakdown
         if 'work_type_wise' in data and data['work_type_wise']:
-            elements.append(Paragraph("Work Type-wise Task Breakdown", styles['SectionTitle']))
+            elements.append(Paragraph("Task Category-wise Task Breakdown", styles['SectionTitle']))
 
             # Chart
             wt_chart_buffer = ReportService.create_work_type_chart(data['work_type_wise'])
@@ -1024,7 +1024,7 @@ NexCA Report System
                 elements.append(img)
                 elements.append(Spacer(1, 10))
 
-            wt_data = [['Work Type', 'Total', 'Completed', 'Pending', 'Overdue']]
+            wt_data = [['Task Category', 'Total', 'Completed', 'Pending', 'Overdue']]
             for wt in data['work_type_wise'][:15]:
                 name = wt.get('client_work__work_type__work_name', 'Unknown')
                 wt_data.append([
@@ -1103,7 +1103,7 @@ NexCA Report System
             elements.append(PageBreak())
             elements.append(Paragraph(f"Task Details ({len(tasks)} records)", styles['SectionTitle']))
 
-            task_data = [['Client', 'Work Type', 'Period', 'Due Date', 'Status', 'Assigned To']]
+            task_data = [['Client', 'Task Category', 'Period', 'Due Date', 'Status', 'Assigned To']]
             for task in tasks[:50]:
                 assigned = f"{task.get('assigned_to__first_name', '') or ''} {task.get('assigned_to__last_name', '') or ''}".strip()
                 if not assigned:

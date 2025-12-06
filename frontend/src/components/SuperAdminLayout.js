@@ -28,6 +28,7 @@ import {
   AdminPanelSettings,
   TrendingUp,
   AccessTime,
+  Speed as SpeedIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 
@@ -39,6 +40,7 @@ const menuItems = [
   { text: 'Trial Management', icon: <AccessTime />, path: '/admin/trials' },
   { text: 'All Users', icon: <PeopleIcon />, path: '/admin/users' },
   { text: 'Subscriptions & Plans', icon: <TrendingUp />, path: '/admin/subscriptions' },
+  { text: 'Google API Quota', icon: <SpeedIcon />, path: '/admin/google-quota' },
   { text: 'Platform Settings', icon: <SettingsIcon />, path: '/admin/settings' },
 ];
 

@@ -15,7 +15,6 @@ import CookiePolicy from './pages/CookiePolicy';
 import Dashboard from './pages/Dashboard';
 import Clients from './pages/Clients';
 import Tasks from './pages/Tasks';
-import Calendar from './pages/Calendar';
 import Reports from './pages/Reports';
 import WorkTypes from './pages/WorkTypes';
 import Templates from './pages/Templates';
@@ -24,6 +23,7 @@ import Employees from './pages/Employees';
 import Profile from './pages/Profile';
 import HelpGuide from './pages/HelpGuide';
 import CredentialVault from './pages/CredentialVault';
+import GoogleSyncHub from './pages/GoogleSyncHub';
 import Layout from './components/Layout';
 import SuperAdminLayout from './components/SuperAdminLayout';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
@@ -32,6 +32,7 @@ import TrialManagement from './pages/admin/TrialManagement';
 import AllUsers from './pages/admin/AllUsers';
 import Subscriptions from './pages/admin/Subscriptions';
 import PlatformSettings from './pages/admin/PlatformSettings';
+import GoogleQuotaMonitor from './pages/admin/GoogleQuotaMonitor';
 import LandingPage from './pages/LandingPage';
 
 const theme = createTheme({
@@ -209,12 +210,12 @@ function AppRoutes() {
           <Route index element={<Dashboard />} />
           <Route path="clients" element={<Clients />} />
           <Route path="tasks" element={<Tasks />} />
-          <Route path="calendar" element={<Calendar />} />
           <Route path="reports" element={<Reports />} />
           <Route path="work-types" element={<WorkTypes />} />
           <Route path="employees" element={<Employees />} />
           <Route path="templates" element={<Templates />} />
           <Route path="credentials" element={<CredentialVault />} />
+          <Route path="google-sync" element={<GoogleSyncHub />} />
           <Route path="settings" element={<Settings />} />
           <Route path="profile" element={<Profile />} />
           <Route path="help" element={<HelpGuide />} />
@@ -226,7 +227,6 @@ function AppRoutes() {
         {/* Legacy routes redirect to new dashboard paths */}
         <Route path="/clients" element={<Navigate to="/dashboard/clients" replace />} />
         <Route path="/tasks" element={<Navigate to="/dashboard/tasks" replace />} />
-        <Route path="/calendar" element={<Navigate to="/dashboard/calendar" replace />} />
         <Route path="/reports" element={<Navigate to="/dashboard/reports" replace />} />
         <Route path="/work-types" element={<Navigate to="/dashboard/work-types" replace />} />
         <Route path="/employees" element={<Navigate to="/dashboard/employees" replace />} />
@@ -248,6 +248,7 @@ function AppRoutes() {
           <Route path="subscriptions" element={<Subscriptions />} />
           <Route path="plans" element={<Navigate to="/admin/subscriptions" replace />} />
           <Route path="settings" element={<PlatformSettings />} />
+          <Route path="google-quota" element={<GoogleQuotaMonitor />} />
         </Route>
       </Routes>
     </Router>

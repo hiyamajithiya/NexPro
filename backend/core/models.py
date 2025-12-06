@@ -149,7 +149,7 @@ class Organization(models.Model):
 class OrganizationEmail(models.Model):
     """
     Multiple email addresses for an organization.
-    Each email can be configured with SMTP settings and linked to specific work types.
+    Each email can be configured with SMTP settings and linked to specific task categories.
     """
     organization = models.ForeignKey(
         Organization,
@@ -392,7 +392,7 @@ class User(AbstractUser):
         return f"{self.username} ({self.get_role_display()}) - {org_name}"
 
     def get_assigned_work_types(self):
-        """Returns list of work types assigned to this user"""
+        """Returns list of task categories assigned to this user"""
         return self.work_type_assignments.filter(is_active=True).values_list('work_type', flat=True)
 
 
@@ -463,7 +463,7 @@ class Client(TenantModel):
 
 
 class WorkType(TenantModel):
-    """Work Type master table (GST, ITR, TDS, Audit, etc.) - tenant scoped"""
+    """Task Category master table (GST, ITR, TDS, Audit, etc.) - tenant scoped"""
     FREQUENCY_CHOICES = [
         ('MONTHLY', 'Monthly'),
         ('QUARTERLY', 'Quarterly'),
@@ -484,7 +484,13 @@ class WorkType(TenantModel):
     description = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
 
-    # Auto-driven work type configuration
+    # Subtask configuration
+    has_subtasks = models.BooleanField(
+        default=False,
+        help_text="Enable subtasks for this task category"
+    )
+
+    # Auto-driven task category configuration
     # Auto-driven tasks start automatically and send reminders until completed
     # No manual assignment needed - system auto-starts and sends reminders continuously
     is_auto_driven = models.BooleanField(
@@ -496,14 +502,14 @@ class WorkType(TenantModel):
         help_text="For auto-driven: automatically set status to STARTED when task is created"
     )
 
-    # Email configuration - link to specific email account for this work type
+    # Email configuration - link to specific email account for this task category
     sender_email = models.ForeignKey(
         'OrganizationEmail',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name='work_types',
-        help_text="Email account to use for sending reminders for this work type"
+        help_text="Email account to use for sending reminders for this task category"
     )
 
     # Due Date Configuration
@@ -591,7 +597,7 @@ class WorkType(TenantModel):
     # Legacy fields (kept for backward compatibility)
     enable_reminders = models.BooleanField(
         default=True,
-        help_text="Enable automatic reminders for this work type"
+        help_text="Enable automatic reminders for this task category"
     )
     reminder_start_day = models.IntegerField(
         default=1,
@@ -726,10 +732,103 @@ class WorkType(TenantModel):
         }
 
 
+class SubTaskCategory(TenantModel):
+    """
+    Sub-task categories within a Task Category (WorkType).
+    Each subtask can have its own reminder configuration similar to the parent task category.
+    """
+    REMINDER_FREQUENCY_CHOICES = WorkType.REMINDER_FREQUENCY_CHOICES
+    EMPLOYEE_NOTIFICATION_TYPE_CHOICES = WorkType.EMPLOYEE_NOTIFICATION_TYPE_CHOICES
+
+    work_type = models.ForeignKey(
+        WorkType,
+        on_delete=models.CASCADE,
+        related_name='subtask_categories'
+    )
+    name = models.CharField(max_length=255, help_text="Name of the subtask")
+    description = models.TextField(blank=True, null=True)
+    order = models.PositiveIntegerField(default=0, help_text="Display order")
+    is_active = models.BooleanField(default=True)
+
+    # Subtask can be marked as required or optional
+    is_required = models.BooleanField(
+        default=True,
+        help_text="Is this subtask mandatory for task completion?"
+    )
+
+    # Auto-driven configuration (inherits from parent or can be customized)
+    is_auto_driven = models.BooleanField(
+        default=False,
+        help_text="Auto-driven subtasks start automatically and send reminders until completed"
+    )
+
+    # Due date configuration relative to parent task
+    due_days_before_parent = models.IntegerField(
+        default=0,
+        help_text="Days before parent task due date (0 = same as parent, -5 = 5 days before)"
+    )
+
+    # =====================================================
+    # CLIENT REMINDER CONFIGURATION
+    # =====================================================
+    enable_client_reminders = models.BooleanField(
+        default=True,
+        help_text="Enable automatic reminders to clients for this subtask"
+    )
+    client_reminder_start_day = models.IntegerField(
+        default=1,
+        help_text="Day of month/period to start sending client reminders"
+    )
+    client_reminder_end_day = models.IntegerField(
+        default=0,
+        help_text="Day to stop client reminders (0 = due date)"
+    )
+    client_reminder_frequency_type = models.CharField(
+        max_length=20,
+        choices=REMINDER_FREQUENCY_CHOICES,
+        default='ALTERNATE_DAYS'
+    )
+    client_reminder_interval_days = models.IntegerField(default=2)
+    client_reminder_weekdays = models.CharField(max_length=50, blank=True, null=True)
+
+    # =====================================================
+    # EMPLOYEE/INTERNAL REMINDER CONFIGURATION
+    # =====================================================
+    enable_employee_reminders = models.BooleanField(
+        default=True,
+        help_text="Enable automatic reminders to assigned employees for this subtask"
+    )
+    employee_notification_type = models.CharField(
+        max_length=20,
+        choices=EMPLOYEE_NOTIFICATION_TYPE_CHOICES,
+        default='BOTH'
+    )
+    employee_reminder_start_day = models.IntegerField(default=1)
+    employee_reminder_end_day = models.IntegerField(default=0)
+    employee_reminder_frequency_type = models.CharField(
+        max_length=20,
+        choices=REMINDER_FREQUENCY_CHOICES,
+        default='DAILY'
+    )
+    employee_reminder_interval_days = models.IntegerField(default=1)
+    employee_reminder_weekdays = models.CharField(max_length=50, blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'subtask_categories'
+        ordering = ['work_type', 'order', 'name']
+        unique_together = ['work_type', 'name', 'organization']
+
+    def __str__(self):
+        return f"{self.work_type.work_name} → {self.name}"
+
+
 class WorkTypeAssignment(TenantModel):
     """
-    Mapping between work types and employees.
-    When a work type is assigned to an employee, all tasks of that work type
+    Mapping between task categories and employees.
+    When a task category is assigned to an employee, all tasks of that task category
     will be automatically assigned to that employee.
     """
     work_type = models.ForeignKey(
@@ -763,7 +862,7 @@ class WorkTypeAssignment(TenantModel):
 
 
 class ClientWorkMapping(TenantModel):
-    """Mapping between clients and work types (engagements) - tenant scoped"""
+    """Mapping between clients and task categories (engagements) - tenant scoped"""
     FREQUENCY_CHOICES = WorkType.FREQUENCY_CHOICES
 
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='work_mappings')
@@ -999,7 +1098,7 @@ class CredentialVault(TenantModel):
 
 
 class EmailTemplate(TenantModel):
-    """Email templates for different work types - tenant scoped"""
+    """Email templates for different task categories - tenant scoped"""
     TEMPLATE_TYPE_CHOICES = [
         ('CLIENT', 'Client Reminder'),
         ('EMPLOYEE', 'Employee/Internal Reminder'),
@@ -1563,7 +1662,7 @@ class ReportConfiguration(TenantModel):
     )
     include_work_type_wise = models.BooleanField(
         default=True,
-        help_text="Include work type-wise task breakdown"
+        help_text="Include task category-wise task breakdown"
     )
     include_status_breakdown = models.BooleanField(
         default=True,
@@ -1724,6 +1823,23 @@ class PlatformSettings(models.Model):
         help_text="Allow users to reset passwords via email"
     )
 
+    # Google OAuth Settings (for Google Sync Hub)
+    google_client_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text="Google OAuth Client ID from Google Cloud Console"
+    )
+    google_client_secret_encrypted = models.TextField(
+        blank=True,
+        default='',
+        help_text="Google OAuth Client Secret (encrypted with Fernet)"
+    )
+    google_oauth_enabled = models.BooleanField(
+        default=False,
+        help_text="Enable Google OAuth for Google Sync Hub"
+    )
+
     # SMTP Email Configuration
     smtp_host = models.CharField(
         max_length=255,
@@ -1741,11 +1857,10 @@ class PlatformSettings(models.Model):
         default='',
         help_text="SMTP username/email"
     )
-    smtp_password = models.CharField(
-        max_length=255,
+    smtp_password_encrypted = models.TextField(
         blank=True,
         default='',
-        help_text="SMTP password (stored encrypted)"
+        help_text="SMTP password (encrypted with Fernet)"
     )
     smtp_use_tls = models.BooleanField(
         default=True,
@@ -1769,6 +1884,35 @@ class PlatformSettings(models.Model):
     smtp_enabled = models.BooleanField(
         default=False,
         help_text="Enable SMTP email sending"
+    )
+
+    # ==========================================================================
+    # Google API Quota Settings (Platform-wide limits)
+    # ==========================================================================
+    google_tasks_daily_quota = models.PositiveIntegerField(
+        default=50000,
+        help_text="Google Tasks API daily quota limit (default: 50,000)"
+    )
+    google_calendar_daily_quota = models.PositiveIntegerField(
+        default=1000000,
+        help_text="Google Calendar API daily quota limit (default: 1,000,000)"
+    )
+    google_drive_daily_quota = models.PositiveIntegerField(
+        default=1000000000,
+        help_text="Google Drive API daily quota limit (default: 1,000,000,000)"
+    )
+    google_gmail_daily_quota = models.PositiveIntegerField(
+        default=1000000,
+        help_text="Gmail API daily quota units limit"
+    )
+    # Alert thresholds (percentage)
+    quota_warning_threshold = models.PositiveIntegerField(
+        default=70,
+        help_text="Percentage at which to warn about quota usage"
+    )
+    quota_critical_threshold = models.PositiveIntegerField(
+        default=90,
+        help_text="Percentage at which to critically alert about quota usage"
     )
 
     # Timestamps
@@ -1796,6 +1940,70 @@ class PlatformSettings(models.Model):
         """Get or create the singleton settings instance"""
         settings, _ = cls.objects.get_or_create(pk=1)
         return settings
+
+    # ==========================================================================
+    # Encryption/Decryption for sensitive fields
+    # ==========================================================================
+
+    def _get_fernet(self):
+        """Get Fernet instance for encryption/decryption"""
+        if settings.FERNET_KEY:
+            return Fernet(settings.FERNET_KEY.encode() if isinstance(settings.FERNET_KEY, str) else settings.FERNET_KEY)
+        raise ValueError("FERNET_KEY not configured in settings")
+
+    @property
+    def google_client_secret(self):
+        """Decrypt and return Google client secret"""
+        if not self.google_client_secret_encrypted:
+            return ''
+        try:
+            fernet = self._get_fernet()
+            return fernet.decrypt(self.google_client_secret_encrypted.encode()).decode()
+        except Exception:
+            return ''
+
+    @google_client_secret.setter
+    def google_client_secret(self, value):
+        """Encrypt and store Google client secret"""
+        if not value:
+            self.google_client_secret_encrypted = ''
+            return
+        try:
+            fernet = self._get_fernet()
+            self.google_client_secret_encrypted = fernet.encrypt(value.encode()).decode()
+        except Exception as e:
+            raise ValueError(f"Failed to encrypt Google client secret: {str(e)}")
+
+    @property
+    def smtp_password(self):
+        """Decrypt and return SMTP password"""
+        if not self.smtp_password_encrypted:
+            return ''
+        try:
+            fernet = self._get_fernet()
+            return fernet.decrypt(self.smtp_password_encrypted.encode()).decode()
+        except Exception:
+            return ''
+
+    @smtp_password.setter
+    def smtp_password(self, value):
+        """Encrypt and store SMTP password"""
+        if not value:
+            self.smtp_password_encrypted = ''
+            return
+        try:
+            fernet = self._get_fernet()
+            self.smtp_password_encrypted = fernet.encrypt(value.encode()).decode()
+        except Exception as e:
+            raise ValueError(f"Failed to encrypt SMTP password: {str(e)}")
+
+    def has_google_client_secret(self):
+        """Check if Google client secret is set (without decrypting)"""
+        return bool(self.google_client_secret_encrypted)
+
+    def has_smtp_password(self):
+        """Check if SMTP password is set (without decrypting)"""
+        return bool(self.smtp_password_encrypted)
 
 
 # =============================================================================
@@ -1854,6 +2062,44 @@ class SubscriptionPlan(models.Model):
     max_storage_mb = models.PositiveIntegerField(
         default=100,
         help_text="Maximum storage in MB"
+    )
+
+    # Google Sync Settings per Plan
+    SYNC_FREQUENCY_CHOICES = [
+        (0, 'Disabled'),
+        (15, 'Every 15 minutes'),
+        (30, 'Every 30 minutes'),
+        (60, 'Every hour'),
+        (120, 'Every 2 hours'),
+        (360, 'Every 6 hours'),
+        (720, 'Every 12 hours'),
+        (1440, 'Once daily'),
+        (-1, 'Manual only'),
+    ]
+    google_sync_enabled = models.BooleanField(
+        default=False,
+        help_text="Whether Google Sync is available for this plan"
+    )
+    google_sync_frequency_minutes = models.IntegerField(
+        choices=SYNC_FREQUENCY_CHOICES,
+        default=-1,
+        help_text="Minimum interval between automatic syncs (-1 = manual only, 0 = disabled)"
+    )
+    google_tasks_enabled = models.BooleanField(
+        default=False,
+        help_text="Google Tasks sync available"
+    )
+    google_calendar_enabled = models.BooleanField(
+        default=False,
+        help_text="Google Calendar sync available"
+    )
+    google_drive_enabled = models.BooleanField(
+        default=False,
+        help_text="Google Drive sync available"
+    )
+    google_gmail_enabled = models.BooleanField(
+        default=False,
+        help_text="Gmail integration available"
     )
 
     # Features (JSON field for flexibility)
@@ -1961,3 +2207,811 @@ class SubscriptionPlan(models.Model):
 
         for plan_data in default_plans:
             cls.objects.create(**plan_data)
+
+
+# =============================================================================
+# GOOGLE SYNC HUB MODELS
+# =============================================================================
+
+class GoogleConnection(TenantModel):
+    """
+    Stores Google OAuth credentials for users.
+    Each user can connect their Google account for sync features.
+    """
+    CONNECTION_STATUS_CHOICES = [
+        ('CONNECTED', 'Connected'),
+        ('DISCONNECTED', 'Disconnected'),
+        ('EXPIRED', 'Token Expired'),
+        ('ERROR', 'Error'),
+    ]
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='google_connection'
+    )
+
+    # OAuth tokens (encrypted)
+    access_token = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Encrypted Google OAuth access token"
+    )
+    refresh_token = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Encrypted Google OAuth refresh token"
+    )
+    token_expiry = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the access token expires"
+    )
+
+    # Google account info
+    google_email = models.EmailField(
+        blank=True,
+        null=True,
+        help_text="Connected Google account email"
+    )
+    google_user_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Google user ID"
+    )
+
+    # Connection status
+    status = models.CharField(
+        max_length=20,
+        choices=CONNECTION_STATUS_CHOICES,
+        default='DISCONNECTED'
+    )
+
+    # Enabled services
+    tasks_enabled = models.BooleanField(
+        default=False,
+        help_text="Google Tasks sync enabled"
+    )
+    calendar_enabled = models.BooleanField(
+        default=False,
+        help_text="Google Calendar sync enabled"
+    )
+    drive_enabled = models.BooleanField(
+        default=False,
+        help_text="Google Drive sync enabled"
+    )
+    gmail_enabled = models.BooleanField(
+        default=False,
+        help_text="Gmail integration enabled"
+    )
+
+    # Google resource IDs
+    tasks_list_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Default Google Tasks list ID for syncing"
+    )
+    calendar_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Default Google Calendar ID for syncing"
+    )
+    drive_folder_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Root Google Drive folder ID for NexPro files"
+    )
+
+    # Timestamps
+    connected_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the connection was established"
+    )
+    last_sync_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last successful sync timestamp"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'google_connections'
+        indexes = [
+            models.Index(fields=['organization', 'status']),
+            models.Index(fields=['user', 'status']),
+        ]
+
+    def __str__(self):
+        return f"Google Connection: {self.user.email} ({self.status})"
+
+    def encrypt_token(self, token, token_type='access'):
+        """Encrypt OAuth token using organization's Fernet key"""
+        key = self._get_encryption_key()
+        fernet = Fernet(key.encode())
+        encrypted = fernet.encrypt(token.encode()).decode()
+        if token_type == 'access':
+            self.access_token = encrypted
+        else:
+            self.refresh_token = encrypted
+
+    def decrypt_token(self, token_type='access'):
+        """Decrypt OAuth token"""
+        key = self._get_encryption_key()
+        fernet = Fernet(key.encode())
+        token = self.access_token if token_type == 'access' else self.refresh_token
+        if not token:
+            return None
+        return fernet.decrypt(token.encode()).decode()
+
+    def _get_encryption_key(self):
+        """Get encryption key - prefer organization's key, fallback to global"""
+        if self.organization and self.organization.encryption_key:
+            return self.organization.encryption_key
+        if settings.FERNET_KEY:
+            return settings.FERNET_KEY
+        raise ValueError("No encryption key configured")
+
+
+class GoogleSyncSettings(TenantModel):
+    """
+    Organization-level settings for Google Sync.
+    Admins configure sync behavior and reminder settings here.
+    """
+    REMINDER_TIME_CHOICES = [
+        (0, 'At due time'),
+        (5, '5 minutes before'),
+        (10, '10 minutes before'),
+        (15, '15 minutes before'),
+        (30, '30 minutes before'),
+        (60, '1 hour before'),
+        (120, '2 hours before'),
+        (1440, '1 day before'),
+        (2880, '2 days before'),
+        (10080, '1 week before'),
+    ]
+
+    SYNC_FREQUENCY_CHOICES = [
+        ('REALTIME', 'Real-time (on task changes)'),
+        ('HOURLY', 'Every hour'),
+        ('DAILY', 'Once daily'),
+        ('MANUAL', 'Manual sync only'),
+    ]
+
+    # One settings per organization
+    # (organization field from TenantModel)
+
+    # Task sync settings
+    sync_tasks_to_google = models.BooleanField(
+        default=True,
+        help_text="Sync NexPro tasks to Google Tasks"
+    )
+    sync_google_to_tasks = models.BooleanField(
+        default=True,
+        help_text="Sync Google Tasks changes back to NexPro (two-way sync)"
+    )
+    task_sync_frequency = models.CharField(
+        max_length=20,
+        choices=SYNC_FREQUENCY_CHOICES,
+        default='REALTIME',
+        help_text="How often to sync tasks"
+    )
+
+    # Calendar sync settings
+    sync_tasks_to_calendar = models.BooleanField(
+        default=True,
+        help_text="Create Google Calendar events for tasks"
+    )
+    sync_calendar_to_tasks = models.BooleanField(
+        default=False,
+        help_text="Sync Calendar event changes back to NexPro"
+    )
+    calendar_sync_frequency = models.CharField(
+        max_length=20,
+        choices=SYNC_FREQUENCY_CHOICES,
+        default='REALTIME',
+        help_text="How often to sync calendar"
+    )
+
+    # Reminder settings (stored as JSON for flexibility)
+    # Default reminders when creating calendar events
+    calendar_reminder_1 = models.IntegerField(
+        choices=REMINDER_TIME_CHOICES,
+        default=1440,  # 1 day before
+        help_text="First reminder time (minutes before due)"
+    )
+    calendar_reminder_2 = models.IntegerField(
+        choices=REMINDER_TIME_CHOICES,
+        default=60,  # 1 hour before
+        help_text="Second reminder time (minutes before due)"
+    )
+    calendar_reminder_3 = models.IntegerField(
+        choices=REMINDER_TIME_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Third reminder time (optional)"
+    )
+
+    # Reminder notification methods
+    reminder_method_popup = models.BooleanField(
+        default=True,
+        help_text="Show popup reminders"
+    )
+    reminder_method_email = models.BooleanField(
+        default=True,
+        help_text="Send email reminders"
+    )
+
+    # Filter settings - what to sync
+    sync_only_assigned_tasks = models.BooleanField(
+        default=True,
+        help_text="Only sync tasks assigned to the connected user"
+    )
+    sync_high_priority_only = models.BooleanField(
+        default=False,
+        help_text="Only sync high priority tasks"
+    )
+    sync_work_types = models.ManyToManyField(
+        'WorkType',
+        blank=True,
+        related_name='google_sync_settings',
+        help_text="Sync only these task categories (empty = all)"
+    )
+
+    # Drive settings
+    auto_create_client_folders = models.BooleanField(
+        default=True,
+        help_text="Automatically create Google Drive folders for new clients"
+    )
+    drive_folder_structure = models.CharField(
+        max_length=500,
+        default='NexPro/{client_name}/{year}',
+        help_text="Folder structure template: {client_name}, {year}, {work_type}"
+    )
+    auto_upload_attachments = models.BooleanField(
+        default=False,
+        help_text="Auto-upload task attachments to Google Drive"
+    )
+    auto_save_reports = models.BooleanField(
+        default=False,
+        help_text="Auto-save generated reports to Google Drive"
+    )
+
+    # Gmail settings
+    send_notifications_via_gmail = models.BooleanField(
+        default=False,
+        help_text="Send task notifications via connected Gmail"
+    )
+    create_tasks_from_starred_emails = models.BooleanField(
+        default=False,
+        help_text="Create NexPro tasks from starred Gmail messages"
+    )
+    gmail_task_label = models.CharField(
+        max_length=100,
+        default='NexPro-Task',
+        help_text="Gmail label to watch for task creation"
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'google_sync_settings'
+        verbose_name = 'Google Sync Settings'
+        verbose_name_plural = 'Google Sync Settings'
+
+    def __str__(self):
+        org_name = self.organization.name if self.organization else 'No Org'
+        return f"Google Sync Settings - {org_name}"
+
+    def get_reminder_minutes_list(self):
+        """Return list of reminder times in minutes"""
+        reminders = [self.calendar_reminder_1, self.calendar_reminder_2]
+        if self.calendar_reminder_3:
+            reminders.append(self.calendar_reminder_3)
+        return [r for r in reminders if r is not None]
+
+
+class GoogleSyncLog(TenantModel):
+    """
+    Log of all Google sync operations for debugging and audit.
+    """
+    SYNC_TYPE_CHOICES = [
+        ('TASK_TO_GOOGLE', 'Task synced to Google Tasks'),
+        ('TASK_FROM_GOOGLE', 'Task synced from Google Tasks'),
+        ('CALENDAR_TO_GOOGLE', 'Event synced to Google Calendar'),
+        ('CALENDAR_FROM_GOOGLE', 'Event synced from Google Calendar'),
+        ('DRIVE_UPLOAD', 'File uploaded to Google Drive'),
+        ('DRIVE_FOLDER_CREATE', 'Folder created in Google Drive'),
+        ('GMAIL_SEND', 'Email sent via Gmail'),
+        ('GMAIL_TASK_CREATE', 'Task created from Gmail'),
+    ]
+
+    STATUS_CHOICES = [
+        ('SUCCESS', 'Success'),
+        ('FAILED', 'Failed'),
+        ('PENDING', 'Pending'),
+        ('SKIPPED', 'Skipped'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='google_sync_logs'
+    )
+    sync_type = models.CharField(
+        max_length=30,
+        choices=SYNC_TYPE_CHOICES
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='PENDING'
+    )
+
+    # Related objects
+    work_instance = models.ForeignKey(
+        'WorkInstance',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='google_sync_logs'
+    )
+
+    # Google resource IDs
+    google_task_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True
+    )
+    google_event_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True
+    )
+    google_file_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True
+    )
+    google_message_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True
+    )
+
+    # Details
+    details = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Sync operation details"
+    )
+    error_message = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Error message if sync failed"
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'google_sync_logs'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['organization', 'sync_type', '-created_at']),
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['work_instance']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_sync_type_display()} - {self.status} ({self.created_at})"
+
+
+class GoogleTaskMapping(TenantModel):
+    """
+    Maps NexPro WorkInstance to Google Task for two-way sync.
+    """
+    work_instance = models.OneToOneField(
+        'WorkInstance',
+        on_delete=models.CASCADE,
+        related_name='google_task_mapping'
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='google_task_mappings'
+    )
+
+    # Google Task identifiers
+    google_task_id = models.CharField(
+        max_length=255,
+        help_text="Google Task ID"
+    )
+    google_tasklist_id = models.CharField(
+        max_length=255,
+        help_text="Google Task List ID"
+    )
+
+    # Sync tracking
+    last_synced_at = models.DateTimeField(auto_now=True)
+    nexpro_updated_at = models.DateTimeField(
+        help_text="Last update time in NexPro (for conflict detection)"
+    )
+    google_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last update time in Google (for conflict detection)"
+    )
+
+    class Meta:
+        db_table = 'google_task_mappings'
+        indexes = [
+            models.Index(fields=['google_task_id', 'google_tasklist_id']),
+            models.Index(fields=['user', 'work_instance']),
+        ]
+
+    def __str__(self):
+        return f"TaskMapping: {self.work_instance} <-> {self.google_task_id}"
+
+
+class GoogleCalendarMapping(TenantModel):
+    """
+    Maps NexPro WorkInstance to Google Calendar Event for two-way sync.
+    """
+    work_instance = models.OneToOneField(
+        'WorkInstance',
+        on_delete=models.CASCADE,
+        related_name='google_calendar_mapping'
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='google_calendar_mappings'
+    )
+
+    # Google Calendar identifiers
+    google_event_id = models.CharField(
+        max_length=255,
+        help_text="Google Calendar Event ID"
+    )
+    google_calendar_id = models.CharField(
+        max_length=255,
+        help_text="Google Calendar ID"
+    )
+
+    # Sync tracking
+    last_synced_at = models.DateTimeField(auto_now=True)
+    nexpro_updated_at = models.DateTimeField(
+        help_text="Last update time in NexPro"
+    )
+    google_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last update time in Google"
+    )
+
+    class Meta:
+        db_table = 'google_calendar_mappings'
+        indexes = [
+            models.Index(fields=['google_event_id', 'google_calendar_id']),
+            models.Index(fields=['user', 'work_instance']),
+        ]
+
+    def __str__(self):
+        return f"CalendarMapping: {self.work_instance} <-> {self.google_event_id}"
+
+
+class GoogleDriveMapping(TenantModel):
+    """
+    Maps NexPro clients/folders to Google Drive folders.
+    """
+    # What this folder is for
+    FOLDER_TYPE_CHOICES = [
+        ('CLIENT', 'Client Folder'),
+        ('WORK_TYPE', 'Task Category Folder'),
+        ('YEAR', 'Year Folder'),
+        ('TASK', 'Task Folder'),
+    ]
+
+    folder_type = models.CharField(
+        max_length=20,
+        choices=FOLDER_TYPE_CHOICES
+    )
+
+    # Related NexPro objects (one of these should be set)
+    client = models.ForeignKey(
+        'Client',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='google_drive_folders'
+    )
+    work_type = models.ForeignKey(
+        'WorkType',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='google_drive_folders'
+    )
+    work_instance = models.ForeignKey(
+        'WorkInstance',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='google_drive_folders'
+    )
+
+    # Year for year folders
+    year = models.IntegerField(
+        null=True,
+        blank=True
+    )
+
+    # Google Drive identifiers
+    google_folder_id = models.CharField(
+        max_length=255,
+        help_text="Google Drive Folder ID"
+    )
+    google_folder_name = models.CharField(
+        max_length=255,
+        help_text="Folder name in Google Drive"
+    )
+    parent_folder_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Parent folder ID in Google Drive"
+    )
+
+    # Shared with users
+    shared_with_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name='shared_google_folders'
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'google_drive_mappings'
+        indexes = [
+            models.Index(fields=['organization', 'folder_type']),
+            models.Index(fields=['client']),
+            models.Index(fields=['google_folder_id']),
+        ]
+
+    def __str__(self):
+        return f"DriveFolder: {self.google_folder_name} ({self.folder_type})"
+
+
+# =============================================================================
+# GOOGLE API QUOTA TRACKING
+# =============================================================================
+
+class GoogleAPIQuotaUsage(models.Model):
+    """
+    Tracks daily Google API usage across the platform.
+    Aggregates usage for quota monitoring and capacity planning.
+    """
+    API_TYPE_CHOICES = [
+        ('TASKS', 'Google Tasks'),
+        ('CALENDAR', 'Google Calendar'),
+        ('DRIVE', 'Google Drive'),
+        ('GMAIL', 'Gmail'),
+    ]
+
+    date = models.DateField(
+        help_text="Date of usage tracking"
+    )
+    api_type = models.CharField(
+        max_length=20,
+        choices=API_TYPE_CHOICES,
+        help_text="Which Google API"
+    )
+
+    # Usage counts
+    queries_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of API queries made"
+    )
+    quota_units_used = models.PositiveIntegerField(
+        default=0,
+        help_text="Quota units consumed (for Gmail)"
+    )
+
+    # Breakdown by operation type
+    read_operations = models.PositiveIntegerField(
+        default=0,
+        help_text="Read/Get operations"
+    )
+    write_operations = models.PositiveIntegerField(
+        default=0,
+        help_text="Create/Update operations"
+    )
+    delete_operations = models.PositiveIntegerField(
+        default=0,
+        help_text="Delete operations"
+    )
+
+    # Stats
+    unique_users = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of unique users making requests"
+    )
+    unique_organizations = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of unique organizations making requests"
+    )
+
+    # Error tracking
+    failed_requests = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of failed API requests"
+    )
+    rate_limit_hits = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of rate limit errors encountered"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'google_api_quota_usage'
+        unique_together = ['date', 'api_type']
+        ordering = ['-date', 'api_type']
+        indexes = [
+            models.Index(fields=['date']),
+            models.Index(fields=['api_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.api_type} Usage on {self.date}: {self.queries_count} queries"
+
+    @classmethod
+    def get_or_create_today(cls, api_type):
+        """Get or create today's usage record for an API type"""
+        from django.utils import timezone
+        today = timezone.now().date()
+        usage, _ = cls.objects.get_or_create(
+            date=today,
+            api_type=api_type,
+            defaults={
+                'queries_count': 0,
+                'quota_units_used': 0,
+            }
+        )
+        return usage
+
+    @classmethod
+    def increment_usage(cls, api_type, queries=1, quota_units=0,
+                       operation_type='read', user=None, organization=None,
+                       failed=False, rate_limited=False):
+        """
+        Increment usage counters for an API type.
+        Thread-safe using F() expressions.
+        """
+        from django.db.models import F
+        from django.utils import timezone
+
+        today = timezone.now().date()
+
+        # Get or create today's record
+        usage, created = cls.objects.get_or_create(
+            date=today,
+            api_type=api_type,
+            defaults={
+                'queries_count': 0,
+                'quota_units_used': 0,
+            }
+        )
+
+        # Update counters using F() for thread safety
+        update_fields = {
+            'queries_count': F('queries_count') + queries,
+            'quota_units_used': F('quota_units_used') + quota_units,
+        }
+
+        if operation_type == 'read':
+            update_fields['read_operations'] = F('read_operations') + queries
+        elif operation_type == 'write':
+            update_fields['write_operations'] = F('write_operations') + queries
+        elif operation_type == 'delete':
+            update_fields['delete_operations'] = F('delete_operations') + queries
+
+        if failed:
+            update_fields['failed_requests'] = F('failed_requests') + 1
+        if rate_limited:
+            update_fields['rate_limit_hits'] = F('rate_limit_hits') + 1
+
+        cls.objects.filter(pk=usage.pk).update(**update_fields)
+
+        # Update unique users/orgs (this is approximate for performance)
+        # A more accurate count would require a separate tracking table
+
+        return usage
+
+    @classmethod
+    def get_usage_percentage(cls, api_type):
+        """Get current usage as percentage of quota limit"""
+        from django.utils import timezone
+        today = timezone.now().date()
+
+        try:
+            usage = cls.objects.get(date=today, api_type=api_type)
+            platform_settings = PlatformSettings.get_settings()
+
+            quota_map = {
+                'TASKS': platform_settings.google_tasks_daily_quota,
+                'CALENDAR': platform_settings.google_calendar_daily_quota,
+                'DRIVE': platform_settings.google_drive_daily_quota,
+                'GMAIL': platform_settings.google_gmail_daily_quota,
+            }
+
+            quota_limit = quota_map.get(api_type, 0)
+            if quota_limit == 0:
+                return 0
+
+            return round((usage.queries_count / quota_limit) * 100, 2)
+        except cls.DoesNotExist:
+            return 0
+
+    @classmethod
+    def get_daily_summary(cls, date=None):
+        """Get summary of all API usage for a date"""
+        from django.utils import timezone
+        if date is None:
+            date = timezone.now().date()
+
+        platform_settings = PlatformSettings.get_settings()
+
+        summary = {
+            'date': date.isoformat(),
+            'apis': {}
+        }
+
+        quota_map = {
+            'TASKS': platform_settings.google_tasks_daily_quota,
+            'CALENDAR': platform_settings.google_calendar_daily_quota,
+            'DRIVE': platform_settings.google_drive_daily_quota,
+            'GMAIL': platform_settings.google_gmail_daily_quota,
+        }
+
+        for api_type, _ in cls.API_TYPE_CHOICES:
+            try:
+                usage = cls.objects.get(date=date, api_type=api_type)
+                quota_limit = quota_map.get(api_type, 0)
+                percentage = round((usage.queries_count / quota_limit) * 100, 2) if quota_limit > 0 else 0
+
+                summary['apis'][api_type] = {
+                    'queries': usage.queries_count,
+                    'quota_limit': quota_limit,
+                    'percentage': percentage,
+                    'quota_units': usage.quota_units_used,
+                    'read_ops': usage.read_operations,
+                    'write_ops': usage.write_operations,
+                    'delete_ops': usage.delete_operations,
+                    'failed': usage.failed_requests,
+                    'rate_limits': usage.rate_limit_hits,
+                    'status': 'critical' if percentage >= platform_settings.quota_critical_threshold
+                             else 'warning' if percentage >= platform_settings.quota_warning_threshold
+                             else 'normal'
+                }
+            except cls.DoesNotExist:
+                summary['apis'][api_type] = {
+                    'queries': 0,
+                    'quota_limit': quota_map.get(api_type, 0),
+                    'percentage': 0,
+                    'status': 'normal'
+                }
+
+        return summary

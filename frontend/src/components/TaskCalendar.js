@@ -212,13 +212,13 @@ export default function TaskCalendar() {
 
           <Grid item xs={12} md={3}>
             <FormControl fullWidth size="small">
-              <InputLabel>Work Type</InputLabel>
+              <InputLabel>Task Category</InputLabel>
               <Select
                 value={filters.workType}
-                label="Work Type"
+                label="Task Category"
                 onChange={(e) => handleFilterChange('workType', e.target.value)}
               >
-                <MenuItem value="ALL">All Work Types</MenuItem>
+                <MenuItem value="ALL">All Task Categories</MenuItem>
                 {Array.isArray(workTypes) && workTypes.map(type => (
                   <MenuItem key={type.id} value={type.id}>
                     {type.work_name}
@@ -305,7 +305,7 @@ export default function TaskCalendar() {
 
                 <Grid item xs={12}>
                   <Typography variant="subtitle2" color="text.secondary">
-                    Work Type
+                    Task Category
                   </Typography>
                   <Typography variant="body1">
                     {selectedEvent.work_type_name}

@@ -334,7 +334,7 @@ export default function Dashboard() {
                   <TableHead>
                     <TableRow>
                       <TableCell>Client</TableCell>
-                      <TableCell>Work Type</TableCell>
+                      <TableCell>Task Category</TableCell>
                       <TableCell>Period</TableCell>
                       <TableCell>Due Date</TableCell>
                       <TableCell>Status</TableCell>
@@ -479,7 +479,7 @@ export default function Dashboard() {
                 <TableHead>
                   <TableRow>
                     <TableCell>Client</TableCell>
-                    <TableCell>Work Type</TableCell>
+                    <TableCell>Task Category</TableCell>
                     <TableCell>Period</TableCell>
                     <TableCell>Due Date</TableCell>
                     <TableCell>Status</TableCell>
@@ -697,7 +697,7 @@ export default function Dashboard() {
                 <TableHead>
                   <TableRow>
                     <TableCell>Client</TableCell>
-                    <TableCell>Work Type</TableCell>
+                    <TableCell>Task Category</TableCell>
                     <TableCell>Period</TableCell>
                     <TableCell>Due Date</TableCell>
                     <TableCell>Status</TableCell>

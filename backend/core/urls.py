@@ -8,7 +8,8 @@ from .views import (
     DashboardViewSet, CustomTokenObtainPairView, OrganizationViewSet,
     OrganizationEmailViewSet, RegisterView, PlatformAdminViewSet,
     TaskDocumentViewSet, ReportConfigurationViewSet, SubscriptionPlanViewSet,
-    CredentialVaultViewSet,
+    CredentialVaultViewSet, GoogleSyncHubViewSet, GoogleQuotaViewSet,
+    SubTaskCategoryViewSet,
     SendSignupOTPView, VerifySignupOTPView, ResendSignupOTPView,
     ForgotPasswordView, VerifyPasswordResetOTPView, ResetPasswordView
 )
@@ -17,6 +18,7 @@ router = DefaultRouter()
 router.register(r'users', UserViewSet, basename='user')
 router.register(r'clients', ClientViewSet, basename='client')
 router.register(r'work-types', WorkTypeViewSet, basename='worktype')
+router.register(r'subtask-categories', SubTaskCategoryViewSet, basename='subtaskcategory')
 router.register(r'work-type-assignments', WorkTypeAssignmentViewSet, basename='worktypeassignment')
 router.register(r'client-works', ClientWorkMappingViewSet, basename='clientwork')
 router.register(r'tasks', WorkInstanceViewSet, basename='workinstance')
@@ -32,6 +34,8 @@ router.register(r'subscription-plans', SubscriptionPlanViewSet, basename='subscr
 router.register(r'task-documents', TaskDocumentViewSet, basename='taskdocument')
 router.register(r'report-configurations', ReportConfigurationViewSet, basename='reportconfiguration')
 router.register(r'credentials', CredentialVaultViewSet, basename='credentialvault')
+router.register(r'google-sync', GoogleSyncHubViewSet, basename='googlesync')
+router.register(r'google-quota', GoogleQuotaViewSet, basename='googlequota')
 
 urlpatterns = [
     path('', include(router.urls)),

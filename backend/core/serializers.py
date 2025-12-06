@@ -5,7 +5,9 @@ from .models import (
     Organization, OrganizationEmail, Subscription,
     Client, WorkType, WorkTypeAssignment, ClientWorkMapping, WorkInstance,
     EmailTemplate, ReminderRule, ReminderInstance, Notification, TaskDocument,
-    ReportConfiguration, PlatformSettings, SubscriptionPlan, CredentialVault
+    ReportConfiguration, PlatformSettings, SubscriptionPlan, CredentialVault,
+    GoogleConnection, GoogleSyncSettings, GoogleSyncLog, GoogleTaskMapping,
+    GoogleCalendarMapping, GoogleDriveMapping, GoogleAPIQuotaUsage, SubTaskCategory
 )
 from .services.plan_service import PlanService
 
@@ -291,11 +293,34 @@ class ClientSerializer(TenantModelSerializer):
         return obj.work_mappings.filter(active=True).count()
 
 
+class SubTaskCategorySerializer(TenantModelSerializer):
+    """Serializer for SubTaskCategory model"""
+    work_type_name = serializers.CharField(source='work_type.work_name', read_only=True)
+
+    class Meta:
+        model = SubTaskCategory
+        fields = [
+            'id', 'work_type', 'work_type_name', 'name', 'description', 'order',
+            'is_active', 'is_required', 'is_auto_driven', 'due_days_before_parent',
+            # Client reminder config
+            'enable_client_reminders', 'client_reminder_start_day', 'client_reminder_end_day',
+            'client_reminder_frequency_type', 'client_reminder_interval_days', 'client_reminder_weekdays',
+            # Employee reminder config
+            'enable_employee_reminders', 'employee_notification_type',
+            'employee_reminder_start_day', 'employee_reminder_end_day',
+            'employee_reminder_frequency_type', 'employee_reminder_interval_days', 'employee_reminder_weekdays',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['organization', 'created_at', 'updated_at']
+
+
 class WorkTypeSerializer(TenantModelSerializer):
-    """Serializer for WorkType model"""
+    """Serializer for WorkType model (Task Category)"""
     period_info = serializers.SerializerMethodField()
     sender_email_display = serializers.CharField(source='sender_email.email_address', read_only=True)
     sender_email_name = serializers.CharField(source='sender_email.display_name', read_only=True)
+    subtasks = SubTaskCategorySerializer(source='subtask_categories', many=True, read_only=True)
+    subtask_count = serializers.SerializerMethodField()
 
     class Meta:
         model = WorkType
@@ -317,6 +342,10 @@ class WorkTypeSerializer(TenantModelSerializer):
             }
         except Exception:
             return None
+
+    def get_subtask_count(self, obj):
+        """Get count of active subtasks"""
+        return obj.subtask_categories.filter(is_active=True).count()
 
 
 class WorkTypeAssignmentSerializer(TenantModelSerializer):
@@ -537,7 +566,7 @@ class ReportConfigurationSerializer(TenantModelSerializer):
 
 class PlatformSettingsSerializer(serializers.ModelSerializer):
     """Serializer for PlatformSettings singleton model"""
-    # Don't expose password in GET, only accept in writes
+    # Don't expose passwords in GET, only accept in writes
     smtp_password = serializers.CharField(
         write_only=True,
         required=False,
@@ -545,6 +574,15 @@ class PlatformSettingsSerializer(serializers.ModelSerializer):
         style={'input_type': 'password'}
     )
     smtp_password_set = serializers.SerializerMethodField()
+
+    # Google OAuth - client secret is write-only for security
+    google_client_secret = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        style={'input_type': 'password'}
+    )
+    google_client_secret_set = serializers.SerializerMethodField()
 
     class Meta:
         model = PlatformSettings
@@ -559,6 +597,11 @@ class PlatformSettingsSerializer(serializers.ModelSerializer):
             'max_free_clients',
             'require_email_verification',
             'allow_password_reset',
+            # Google OAuth Configuration
+            'google_client_id',
+            'google_client_secret',
+            'google_client_secret_set',
+            'google_oauth_enabled',
             # SMTP Email Configuration
             'smtp_host',
             'smtp_port',
@@ -570,21 +613,38 @@ class PlatformSettingsSerializer(serializers.ModelSerializer):
             'smtp_from_email',
             'smtp_from_name',
             'smtp_enabled',
+            # Google API Quota Settings
+            'google_tasks_daily_quota',
+            'google_calendar_daily_quota',
+            'google_drive_daily_quota',
+            'google_gmail_daily_quota',
+            'quota_warning_threshold',
+            'quota_critical_threshold',
             'created_at',
             'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'smtp_password_set']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'smtp_password_set', 'google_client_secret_set']
 
     def get_smtp_password_set(self, obj):
         """Return whether SMTP password is configured (not the actual password)"""
-        return bool(obj.smtp_password)
+        return obj.has_smtp_password()
+
+    def get_google_client_secret_set(self, obj):
+        """Return whether Google Client Secret is configured (not the actual secret)"""
+        return obj.has_google_client_secret()
 
     def update(self, instance, validated_data):
-        """Only update smtp_password if a new value is provided"""
+        """Only update passwords/secrets if a new value is provided"""
+        # Handle SMTP password
         smtp_password = validated_data.get('smtp_password', None)
         if smtp_password == '' or smtp_password is None:
-            # Don't clear existing password if empty/not provided
             validated_data.pop('smtp_password', None)
+
+        # Handle Google client secret
+        google_client_secret = validated_data.get('google_client_secret', None)
+        if google_client_secret == '' or google_client_secret is None:
+            validated_data.pop('google_client_secret', None)
+
         return super().update(instance, validated_data)
 
 
@@ -595,6 +655,10 @@ class PlatformSettingsSerializer(serializers.ModelSerializer):
 class SubscriptionPlanSerializer(serializers.ModelSerializer):
     """Serializer for SubscriptionPlan model"""
     organizations_count = serializers.SerializerMethodField()
+    sync_frequency_display = serializers.CharField(
+        source='get_google_sync_frequency_minutes_display',
+        read_only=True
+    )
 
     class Meta:
         model = SubscriptionPlan
@@ -609,6 +673,15 @@ class SubscriptionPlanSerializer(serializers.ModelSerializer):
             'max_users',
             'max_clients',
             'max_storage_mb',
+            # Google Sync Settings
+            'google_sync_enabled',
+            'google_sync_frequency_minutes',
+            'sync_frequency_display',
+            'google_tasks_enabled',
+            'google_calendar_enabled',
+            'google_drive_enabled',
+            'google_gmail_enabled',
+            # Other fields
             'features',
             'is_active',
             'is_default',
@@ -617,7 +690,7 @@ class SubscriptionPlanSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at'
         ]
-        read_only_fields = ['id', 'organizations_count', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'organizations_count', 'sync_frequency_display', 'created_at', 'updated_at']
 
     def get_organizations_count(self, obj):
         """Count organizations using this plan"""
@@ -680,3 +753,206 @@ class CredentialVaultDecryptedSerializer(CredentialVaultSerializer):
             return obj.decrypt_password()
         except Exception:
             return None
+
+
+# =============================================================================
+# GOOGLE SYNC HUB SERIALIZERS
+# =============================================================================
+
+class GoogleConnectionSerializer(serializers.ModelSerializer):
+    """Serializer for GoogleConnection model"""
+    google_email = serializers.ReadOnlyField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = GoogleConnection
+        fields = [
+            'id', 'user', 'status', 'status_display', 'google_email', 'google_user_id',
+            'tasks_enabled', 'calendar_enabled', 'drive_enabled', 'gmail_enabled',
+            'tasks_list_id', 'calendar_id', 'drive_folder_id',
+            'connected_at', 'last_sync_at', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'user', 'status', 'google_email', 'google_user_id',
+            'tasks_list_id', 'calendar_id', 'drive_folder_id',
+            'connected_at', 'last_sync_at', 'created_at', 'updated_at'
+        ]
+
+
+class GoogleConnectionUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating Google Connection enabled services"""
+
+    class Meta:
+        model = GoogleConnection
+        fields = ['tasks_enabled', 'calendar_enabled', 'drive_enabled', 'gmail_enabled']
+
+
+class GoogleSyncSettingsSerializer(serializers.ModelSerializer):
+    """Serializer for GoogleSyncSettings model"""
+    reminder_1_display = serializers.CharField(
+        source='get_calendar_reminder_1_display', read_only=True
+    )
+    reminder_2_display = serializers.CharField(
+        source='get_calendar_reminder_2_display', read_only=True
+    )
+    reminder_3_display = serializers.CharField(
+        source='get_calendar_reminder_3_display', read_only=True
+    )
+    sync_work_type_ids = serializers.PrimaryKeyRelatedField(
+        source='sync_work_types',
+        many=True,
+        queryset=WorkType.objects.all(),
+        required=False
+    )
+
+    class Meta:
+        model = GoogleSyncSettings
+        fields = [
+            'id', 'organization',
+            # Task sync
+            'sync_tasks_to_google', 'sync_google_to_tasks', 'task_sync_frequency',
+            # Calendar sync
+            'sync_tasks_to_calendar', 'sync_calendar_to_tasks', 'calendar_sync_frequency',
+            # Reminders
+            'calendar_reminder_1', 'calendar_reminder_2', 'calendar_reminder_3',
+            'reminder_1_display', 'reminder_2_display', 'reminder_3_display',
+            'reminder_method_popup', 'reminder_method_email',
+            # Filters
+            'sync_only_assigned_tasks', 'sync_high_priority_only', 'sync_work_type_ids',
+            # Drive
+            'auto_create_client_folders', 'drive_folder_structure',
+            'auto_upload_attachments', 'auto_save_reports',
+            # Gmail
+            'send_notifications_via_gmail', 'create_tasks_from_starred_emails',
+            'gmail_task_label',
+            # Timestamps
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'organization', 'created_at', 'updated_at']
+
+
+class GoogleSyncLogSerializer(serializers.ModelSerializer):
+    """Serializer for GoogleSyncLog model"""
+    sync_type_display = serializers.CharField(source='get_sync_type_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    user_email = serializers.CharField(source='user.email', read_only=True)
+    work_instance_info = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GoogleSyncLog
+        fields = [
+            'id', 'user', 'user_email', 'sync_type', 'sync_type_display',
+            'status', 'status_display', 'work_instance', 'work_instance_info',
+            'google_task_id', 'google_event_id', 'google_file_id', 'google_message_id',
+            'details', 'error_message', 'created_at', 'completed_at'
+        ]
+        read_only_fields = '__all__'
+
+    def get_work_instance_info(self, obj):
+        if obj.work_instance:
+            return {
+                'id': obj.work_instance.id,
+                'client_name': obj.work_instance.client_work.client.client_name,
+                'work_type': obj.work_instance.client_work.work_type.work_name,
+                'period': obj.work_instance.period_label,
+            }
+        return None
+
+
+class GoogleTaskMappingSerializer(serializers.ModelSerializer):
+    """Serializer for GoogleTaskMapping model"""
+    work_instance_info = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GoogleTaskMapping
+        fields = [
+            'id', 'work_instance', 'work_instance_info', 'user',
+            'google_task_id', 'google_tasklist_id',
+            'last_synced_at', 'nexpro_updated_at', 'google_updated_at'
+        ]
+        read_only_fields = '__all__'
+
+    def get_work_instance_info(self, obj):
+        return {
+            'id': obj.work_instance.id,
+            'client_name': obj.work_instance.client_work.client.client_name,
+            'work_type': obj.work_instance.client_work.work_type.work_name,
+            'period': obj.work_instance.period_label,
+            'due_date': obj.work_instance.due_date,
+            'status': obj.work_instance.status,
+        }
+
+
+class GoogleCalendarMappingSerializer(serializers.ModelSerializer):
+    """Serializer for GoogleCalendarMapping model"""
+    work_instance_info = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GoogleCalendarMapping
+        fields = [
+            'id', 'work_instance', 'work_instance_info', 'user',
+            'google_event_id', 'google_calendar_id',
+            'last_synced_at', 'nexpro_updated_at', 'google_updated_at'
+        ]
+        read_only_fields = '__all__'
+
+    def get_work_instance_info(self, obj):
+        return {
+            'id': obj.work_instance.id,
+            'client_name': obj.work_instance.client_work.client.client_name,
+            'work_type': obj.work_instance.client_work.work_type.work_name,
+            'period': obj.work_instance.period_label,
+            'due_date': obj.work_instance.due_date,
+            'status': obj.work_instance.status,
+        }
+
+
+class GoogleDriveMappingSerializer(serializers.ModelSerializer):
+    """Serializer for GoogleDriveMapping model"""
+    folder_type_display = serializers.CharField(source='get_folder_type_display', read_only=True)
+    client_name = serializers.CharField(source='client.client_name', read_only=True)
+
+    class Meta:
+        model = GoogleDriveMapping
+        fields = [
+            'id', 'folder_type', 'folder_type_display',
+            'client', 'client_name', 'work_type', 'work_instance', 'year',
+            'google_folder_id', 'google_folder_name', 'parent_folder_id',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = '__all__'
+
+
+# =============================================================================
+# GOOGLE API QUOTA TRACKING SERIALIZERS
+# =============================================================================
+
+class GoogleAPIQuotaUsageSerializer(serializers.ModelSerializer):
+    """Serializer for GoogleAPIQuotaUsage model"""
+    api_type_display = serializers.CharField(source='get_api_type_display', read_only=True)
+
+    class Meta:
+        model = GoogleAPIQuotaUsage
+        fields = [
+            'id', 'date', 'api_type', 'api_type_display',
+            'queries_count', 'quota_units_used',
+            'read_operations', 'write_operations', 'delete_operations',
+            'unique_users', 'unique_organizations',
+            'failed_requests', 'rate_limit_hits',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = '__all__'
+
+
+class QuotaSummarySerializer(serializers.Serializer):
+    """Serializer for quota summary response"""
+    date = serializers.DateField()
+    apis = serializers.DictField()
+    total_queries = serializers.IntegerField(required=False)
+    estimated_tenant_capacity = serializers.IntegerField(required=False)
+
+
+class SyncFrequencyChoicesSerializer(serializers.Serializer):
+    """Serializer for sync frequency choices dropdown"""
+    value = serializers.IntegerField()
+    label = serializers.CharField()

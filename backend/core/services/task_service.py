@@ -78,7 +78,7 @@ class ReminderGenerationService:
                 send_status='PENDING'
             ).update(send_status='CANCELLED')
 
-        # Get period dates from work type
+        # Get period dates from task category
         period_dates = work_type.get_period_dates(work_instance.period_start or work_instance.due_date)
 
         current_time = timezone.now()
@@ -209,7 +209,7 @@ class ReminderGenerationService:
     @staticmethod
     def get_reminder_schedule_preview(work_type, reference_date=None):
         """
-        Get a preview of the reminder schedule for a work type.
+        Get a preview of the reminder schedule for a task category.
         Useful for showing users when reminders will be sent.
         """
         if reference_date is None:
@@ -311,7 +311,7 @@ class TaskAutomationService:
     def create_work_instance(client_work_mapping):
         """
         Create a new work instance for a client work mapping.
-        For auto-driven work types, the task is automatically started.
+        For auto-driven task categories, the task is automatically started.
         """
         frequency = client_work_mapping.effective_frequency
         work_type = client_work_mapping.work_type
@@ -336,7 +336,7 @@ class TaskAutomationService:
                 TaskAutomationService.calculate_next_period_and_due_date(frequency, due_date_day=due_date_day)
 
         # Determine assigned employee:
-        # 1. First check if there's a WorkTypeAssignment for this work type
+        # 1. First check if there's a WorkTypeAssignment for this task category
         # 2. Fall back to previous instance's assignee
         # Note: For auto-driven tasks, assignment is optional
         assigned_to = None
@@ -353,8 +353,8 @@ class TaskAutomationService:
         elif latest_instance:
             assigned_to = latest_instance.assigned_to
 
-        # Determine initial status based on work type configuration
-        # Auto-driven work types start automatically
+        # Determine initial status based on task category configuration
+        # Auto-driven task categories start automatically
         initial_status = 'NOT_STARTED'
         started_on = None
         if work_type.is_auto_driven and work_type.auto_start_on_creation:

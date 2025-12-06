@@ -80,7 +80,7 @@ class Command(BaseCommand):
         Generate work instances for a specific mapping up to the cutoff date.
         Returns the number of instances created.
         """
-        # Skip ONE_TIME work types if they already have an instance
+        # Skip ONE_TIME task categories if they already have an instance
         if mapping.effective_frequency == 'ONE_TIME':
             existing_count = WorkInstance.objects.filter(client_work=mapping).count()
             if existing_count > 0:

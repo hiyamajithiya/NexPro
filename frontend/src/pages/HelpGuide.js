@@ -175,12 +175,12 @@ export default function HelpGuide() {
     },
     {
       label: 'Configure Email Accounts',
-      description: 'Navigate to Settings > Email Accounts tab to add email addresses for sending reminders. You can configure multiple emails for different work types (e.g., GST, Income Tax).',
+      description: 'Navigate to Settings > Email Accounts tab to add email addresses for sending reminders. You can configure multiple emails for different task categories (e.g., GST, Income Tax).',
       note: 'For Gmail, enable "App Passwords" in your Google account settings.',
     },
     {
-      label: 'Add Work Types',
-      description: 'Go to Work Types to define the services your firm offers (e.g., GST Return, TDS Filing, Audit). Set frequencies, deadlines, and link email accounts.',
+      label: 'Add Task Categories',
+      description: 'Go to Task Categories to define the services your firm offers (e.g., GST Return, TDS Filing, Audit). Set frequencies, deadlines, and link email accounts.',
     },
     {
       label: 'Add Your Team',
@@ -188,7 +188,7 @@ export default function HelpGuide() {
     },
     {
       label: 'Add Clients',
-      description: 'Start adding clients with their details. You can assign work types to each client which will automatically generate tasks.',
+      description: 'Start adding clients with their details. You can assign task categories to each client which will automatically generate tasks.',
     },
     {
       label: 'Create Email Templates',
@@ -203,9 +203,9 @@ export default function HelpGuide() {
       description: 'Click "Add Client" button. Fill in client name, PAN, GSTIN, email, phone, and address. Select the primary contact person.',
     },
     {
-      label: 'Assign Work Types',
-      description: 'After creating a client, assign relevant work types. Each work type will generate recurring tasks based on its frequency.',
-      note: 'Tasks are automatically generated based on work type frequency (Monthly, Quarterly, Yearly).',
+      label: 'Assign Task Categories',
+      description: 'After creating a client, assign relevant task categories. Each category will generate recurring tasks based on its frequency.',
+      note: 'Tasks are automatically generated based on task category frequency (Monthly, Quarterly, Yearly).',
     },
     {
       label: 'Manage Client Documents',
@@ -221,7 +221,7 @@ export default function HelpGuide() {
   const taskManagementSteps = [
     {
       label: 'View Your Tasks',
-      description: 'The Tasks page shows all work instances. Use filters to view by status (Pending, In Progress, Completed), work type, or assigned employee.',
+      description: 'The Tasks page shows all work instances. Use filters to view by status (Pending, In Progress, Completed), task category, or assigned employee.',
     },
     {
       label: 'Update Task Status',
@@ -242,7 +242,7 @@ export default function HelpGuide() {
   const faqs = [
     {
       question: 'How do automatic reminders work?',
-      answer: 'Automatic reminders are sent based on reminder rules defined in Work Types. You can set reminders for X days before due date, on due date, and after due date. The system runs a scheduled job to send these emails automatically.',
+      answer: 'Automatic reminders are sent based on reminder rules defined in Task Categories. You can set reminders for X days before due date, on due date, and after due date. The system runs a scheduled job to send these emails automatically.',
     },
     {
       question: 'What are the different user roles?',
@@ -258,7 +258,7 @@ export default function HelpGuide() {
     },
     {
       question: 'How are tasks generated automatically?',
-      answer: 'When you assign a work type to a client, the system automatically generates tasks based on the work type\'s frequency (Monthly/Quarterly/Yearly). Tasks are created for the current and upcoming periods.',
+      answer: 'When you assign a task category to a client, the system automatically generates tasks based on the category\'s frequency (Monthly/Quarterly/Yearly). Tasks are created for the current and upcoming periods.',
     },
     {
       question: 'What reports are available?',
@@ -291,7 +291,7 @@ export default function HelpGuide() {
     { feature: 'Update Task Status', admin: true, partner: true, manager: true, staff: true },
     { feature: 'View Reports', admin: true, partner: true, manager: true, staff: false },
     { feature: 'Manage Employees', admin: true, partner: true, manager: false, staff: false },
-    { feature: 'Manage Work Types', admin: true, partner: true, manager: false, staff: false },
+    { feature: 'Manage Task Categories', admin: true, partner: true, manager: false, staff: false },
     { feature: 'Manage Templates', admin: true, partner: true, manager: false, staff: false },
     { feature: 'Settings (Organization, Email, Security)', admin: true, partner: true, manager: false, staff: false },
   ];
@@ -413,7 +413,7 @@ export default function HelpGuide() {
                     {[
                       { num: 1, text: 'Settings > Organization', icon: <SettingsIcon /> },
                       { num: 2, text: 'Settings > Email Accounts', icon: <EmailIcon /> },
-                      { num: 3, text: 'Work Types', icon: <WorkIcon /> },
+                      { num: 3, text: 'Task Categories', icon: <WorkIcon /> },
                       { num: 4, text: 'Email Templates', icon: <EmailIcon /> },
                       { num: 5, text: 'Add Employees', icon: <BadgeIcon /> },
                       { num: 6, text: 'Add Clients', icon: <PeopleIcon /> },
@@ -453,7 +453,7 @@ export default function HelpGuide() {
               <FeatureCard
                 icon={<PeopleIcon />}
                 title="Client Management"
-                description="Manage all your clients in one place. Store contact details, PAN, GSTIN, assign work types, and track communication history."
+                description="Manage all your clients in one place. Store contact details, PAN, GSTIN, assign task categories, and track communication history."
                 tips={[
                   'Use search to find clients quickly',
                   'Export client list to Excel',
@@ -466,7 +466,7 @@ export default function HelpGuide() {
               <FeatureCard
                 icon={<AssignmentIcon />}
                 title="Task Management"
-                description="Track all compliance tasks with status, due dates, and assignments. Filter by work type, status, or employee."
+                description="Track all compliance tasks with status, due dates, and assignments. Filter by task category, status, or employee."
                 tips={[
                   'Color-coded by urgency',
                   'Set reminders for critical tasks',
@@ -491,10 +491,10 @@ export default function HelpGuide() {
             <Grid item xs={12} md={6} lg={4}>
               <FeatureCard
                 icon={<WorkIcon />}
-                title="Work Types"
+                title="Task Categories"
                 description="Define the services your firm offers. Set frequency (Monthly/Quarterly/Yearly), deadlines, and link email accounts."
                 tips={[
-                  'Link specific email per work type',
+                  'Link specific email per category',
                   'Set automatic reminder rules',
                   'Configure due date calculations',
                 ]}
@@ -508,7 +508,7 @@ export default function HelpGuide() {
                 description="Create customizable email templates for reminders with placeholders that auto-fill with client data."
                 tips={[
                   'Use {{client_name}} for personalization',
-                  'Create multiple templates per work type',
+                  'Create multiple templates per category',
                   'Preview before saving',
                 ]}
                 color="error"
@@ -533,7 +533,7 @@ export default function HelpGuide() {
                 title="Employee Management"
                 description="Add team members, assign roles, manage permissions, and track individual workloads and performance."
                 tips={[
-                  'Assign work types to employees',
+                  'Assign task categories to employees',
                   'Set notification preferences',
                   'Track employee task completion',
                 ]}
@@ -574,7 +574,7 @@ export default function HelpGuide() {
                   <Grid container spacing={2}>
                     {[
                       { action: 'Add New Client', path: 'Clients → Add Client button', icon: <AddIcon /> },
-                      { action: 'Create Task', path: 'Assign work type to client (auto-creates)', icon: <AssignmentIcon /> },
+                      { action: 'Create Task', path: 'Assign task category to client (auto-creates)', icon: <AssignmentIcon /> },
                       { action: 'Send Reminder', path: 'Tasks → Select task → Send Reminder', icon: <EmailIcon /> },
                       { action: 'View Reports', path: 'Reports → Select report type', icon: <ReportsIcon /> },
                       { action: 'Add Employee', path: 'Employees → Add Employee', icon: <BadgeIcon /> },
@@ -746,7 +746,7 @@ export default function HelpGuide() {
                     Email Tip
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Set up different email accounts for different work types (e.g., GST, TDS) to organize client communications better.
+                    Set up different email accounts for different task categories (e.g., GST, TDS) to organize client communications better.
                   </Typography>
                 </Paper>
               </Grid>

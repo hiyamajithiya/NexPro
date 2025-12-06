@@ -59,7 +59,18 @@
       "Bash(\"D:/Git/cmd/git.exe\" remote -v)",
       "Bash(\"D:/Git/cmd/git.exe\" add .)",
       "Bash(\"D:/Git/cmd/git.exe\" reset)",
-      "Bash(\"D:/Git/cmd/git.exe\" add --all -- \":!nul\")"
+      "Bash(\"D:/Git/cmd/git.exe\" add --all -- \":!nul\")",
+      "Bash(\"D:/Git/cmd/git.exe\" commit -m \"$(cat <<''EOF''\nInitial commit - NexPro Practice Management System\n\nMulti-tenant SaaS application for CA/accounting firms with:\n- Django REST backend with tenant isolation\n- React frontend with Material-UI\n- Task management, client tracking, employee management\n- Subscription plans and billing\n- Email notifications and reporting\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(\"D:/Git/cmd/git.exe\" branch -M main)",
+      "Bash(\"D:/Git/cmd/git.exe\" remote add origin https://github.com/hiyamajithiya/NexPro.git)",
+      "Bash(\"D:/Git/cmd/git.exe\" push -u origin main)",
+      "Bash(\"D:/Git/cmd/git.exe\" diff --stat)",
+      "Bash(\"D:/Git/cmd/git.exe\" log -3 --oneline)",
+      "Bash(\"D:/Git/cmd/git.exe\" add:*)",
+      "Bash(\"D:/Git/cmd/git.exe\" commit -m \"$(cat <<''EOF''\nConnect Subscription Plans between Manage Plans and Subscriptions pages\n\n- Updated Subscriptions page to fetch plans dynamically from SubscriptionPlan API\n- Added warning message when no subscription plans are configured\n- Updated upgrade dialog to show all available plans from database\n- Backend now returns dynamic plan distribution from SubscriptionPlan model\n- Added View dialog to Manage Plans with full plan details (pricing, limits, features)\n- Added dynamic color palette for custom plan codes\n- Added View, Edit, Delete action buttons for each plan\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(\"D:/Git/cmd/git.exe\" push origin main)",
+      "Bash(\"D:/Git/cmd/git.exe\" commit:*)",
+      "Bash(timeout 90 powershell:*)"
     ],
     "deny": [],
     "ask": []

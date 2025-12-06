@@ -500,7 +500,7 @@ export default function Reports() {
   const exportToCSV = () => {
     if (!reportData || !reportData.tasks) return;
 
-    const headers = ['Client', 'Work Type', 'Period', 'Due Date', 'Status', 'Assigned To'];
+    const headers = ['Client', 'Task Category', 'Period', 'Due Date', 'Status', 'Assigned To'];
     const rows = reportData.tasks.map(task => [
       task.client_name,
       task.work_type_name,
@@ -529,7 +529,7 @@ export default function Reports() {
 
     // Create Excel-compatible CSV with UTF-8 BOM for proper encoding
     const BOM = '\uFEFF';
-    const headers = ['Client', 'Work Type', 'Period', 'Due Date', 'Status', 'Assigned To', 'Client Code'];
+    const headers = ['Client', 'Task Category', 'Period', 'Due Date', 'Status', 'Assigned To', 'Client Code'];
     const rows = reportData.tasks.map(task => [
       `"${(task.client_name || '').replace(/"/g, '""')}"`,
       `"${(task.work_type_name || '').replace(/"/g, '""')}"`,
@@ -596,7 +596,7 @@ export default function Reports() {
     const reportTypeLabels = {
       'TASK_SUMMARY': 'Task Summary Report',
       'CLIENT_SUMMARY': 'Client Summary Report',
-      'WORK_TYPE_SUMMARY': 'Work Type Summary Report',
+      'WORK_TYPE_SUMMARY': 'Task Category Summary Report',
       'STAFF_PRODUCTIVITY': 'Staff Productivity Report',
       'STATUS_ANALYSIS': 'Status Analysis Report',
     };
@@ -668,7 +668,7 @@ export default function Reports() {
           <thead>
             <tr>
               <th>Client</th>
-              <th>Work Type</th>
+              <th>Task Category</th>
               <th>Period</th>
               <th>Due Date</th>
               <th>Status</th>
@@ -889,7 +889,7 @@ export default function Reports() {
                 >
                   <MenuItem value="TASK_SUMMARY">Task Summary</MenuItem>
                   <MenuItem value="CLIENT_SUMMARY">Client Summary</MenuItem>
-                  <MenuItem value="WORK_TYPE_SUMMARY">Work Type Summary</MenuItem>
+                  <MenuItem value="WORK_TYPE_SUMMARY">Task Category Summary</MenuItem>
                   <MenuItem value="STAFF_PRODUCTIVITY">Staff Productivity</MenuItem>
                   <MenuItem value="STATUS_ANALYSIS">Status Analysis</MenuItem>
                 </Select>
@@ -934,13 +934,13 @@ export default function Reports() {
 
             <Grid item xs={12} md={3}>
               <FormControl fullWidth>
-                <InputLabel>Work Type</InputLabel>
+                <InputLabel>Task Category</InputLabel>
                 <Select
                   value={filters.workType}
-                  label="Work Type"
+                  label="Task Category"
                   onChange={(e) => handleFilterChange('workType', e.target.value)}
                 >
-                  <MenuItem value="ALL">All Work Types</MenuItem>
+                  <MenuItem value="ALL">All Task Categories</MenuItem>
                   {Array.isArray(workTypes) && workTypes.map(type => (
                     <MenuItem key={type.id} value={type.id}>
                       {type.work_name}
@@ -1156,7 +1156,7 @@ export default function Reports() {
                       <CardContent sx={{ py: 2, px: 2, '&:last-child': { pb: 2 } }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                           <AssessmentIcon sx={{ fontSize: 18, opacity: 0.9 }} />
-                          <Typography variant="caption" sx={{ opacity: 0.9 }}>Work Types</Typography>
+                          <Typography variant="caption" sx={{ opacity: 0.9 }}>Task Categories</Typography>
                         </Box>
                         <Typography variant="h5" sx={{ fontWeight: 700 }}>{reportData.summary.uniqueWorkTypes}</Typography>
                       </CardContent>
@@ -1224,7 +1224,7 @@ export default function Reports() {
                   <TableHead>
                     <TableRow>
                       <TableCell>Client</TableCell>
-                      <TableCell>Work Type</TableCell>
+                      <TableCell>Task Category</TableCell>
                       <TableCell>Period</TableCell>
                       <TableCell>Due Date</TableCell>
                       <TableCell>Status</TableCell>
@@ -1477,7 +1477,7 @@ export default function Reports() {
                         onChange={(e) => setScheduleFormData({ ...scheduleFormData, include_work_type_wise: e.target.checked })}
                       />
                     }
-                    label="Work Type-wise Report"
+                    label="Task Category-wise Report"
                   />
                 </Grid>
                 <Grid item xs={12} md={4}>

@@ -292,7 +292,7 @@ export default function Clients() {
     if (!selectedClient) return;
 
     if (selectedWorkTypes.length === 0) {
-      showSnackbar('Please select at least one work type', 'warning');
+      showSnackbar('Please select at least one task category', 'warning');
       return;
     }
 
@@ -309,7 +309,7 @@ export default function Clients() {
 
       showSnackbar(
         response.data.message ||
-          `Successfully assigned ${response.data.created_count} work type(s)`,
+          `Successfully assigned ${response.data.created_count} task category(s)`,
         'success'
       );
 
@@ -325,7 +325,7 @@ export default function Clients() {
       handleCloseWorkTypeDialog();
     } catch (error) {
       showSnackbar(
-        error.response?.data?.error || 'Failed to assign work types',
+        error.response?.data?.error || 'Failed to assign task categories',
         'error'
       );
     }
@@ -440,7 +440,7 @@ export default function Clients() {
             size="small"
             color="secondary"
             onClick={() => handleOpenWorkTypeDialog(params.row)}
-            title="Assign Work Types"
+            title="Assign Task Categories"
           >
             <WorkIcon fontSize="small" />
           </IconButton>
@@ -681,15 +681,15 @@ export default function Clients() {
           </DialogActions>
         </Dialog>
 
-        {/* Assign Work Types Dialog */}
+        {/* Assign Task Categories Dialog */}
         <Dialog open={openWorkTypeDialog} onClose={handleCloseWorkTypeDialog} maxWidth="md" fullWidth>
           <DialogTitle>
-            Assign Work Types to {selectedClient?.client_name}
+            Assign Task Categories to {selectedClient?.client_name}
           </DialogTitle>
           <DialogContent>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
               <Alert severity="info">
-                Select work types to assign to this client. Tasks will be automatically created for each selected work type.
+                Select task categories to assign to this client. Tasks will be automatically created for each selected category.
               </Alert>
 
               <Autocomplete
@@ -703,8 +703,8 @@ export default function Clients() {
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    label="Select Work Types"
-                    placeholder="Choose work types"
+                    label="Select Task Categories"
+                    placeholder="Choose task categories"
                     required
                   />
                 )}
@@ -732,7 +732,7 @@ export default function Clients() {
 
               {selectedWorkTypes.length > 0 && (
                 <Alert severity="success">
-                  {selectedWorkTypes.length} work type(s) selected. Initial tasks will be created automatically.
+                  {selectedWorkTypes.length} task category(s) selected. Initial tasks will be created automatically.
                 </Alert>
               )}
             </Box>
@@ -744,7 +744,7 @@ export default function Clients() {
               variant="contained"
               disabled={selectedWorkTypes.length === 0 || !startFromPeriod}
             >
-              Assign Work Types
+              Assign Task Categories
             </Button>
           </DialogActions>
         </Dialog>

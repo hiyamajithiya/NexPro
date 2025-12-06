@@ -151,15 +151,28 @@ export const clientsAPI = {
   },
 };
 
-// Work Types API
+// Task Categories API (Work Types)
 export const workTypesAPI = {
   getAll: (params) => api.get('/work-types/', { params }),
   getById: (id) => api.get(`/work-types/${id}/`),
   create: (data) => api.post('/work-types/', data),
   update: (id, data) => api.put(`/work-types/${id}/`, data),
   delete: (id) => api.delete(`/work-types/${id}/`),
-  // Get period options and due date for a work type
+  // Get period options and due date for a task category
   getPeriodOptions: (id) => api.get(`/work-types/${id}/period_options/`),
+};
+
+// Subtask Categories API (for task categories with subtasks)
+export const subtaskCategoriesAPI = {
+  getAll: (params) => api.get('/subtask-categories/', { params }),
+  getByWorkType: (workTypeId) => api.get('/subtask-categories/', { params: { work_type: workTypeId } }),
+  getById: (id) => api.get(`/subtask-categories/${id}/`),
+  create: (data) => api.post('/subtask-categories/', data),
+  update: (id, data) => api.put(`/subtask-categories/${id}/`, data),
+  delete: (id) => api.delete(`/subtask-categories/${id}/`),
+  bulkCreate: (workTypeId, subtasks) => api.post('/subtask-categories/bulk_create/', { work_type: workTypeId, subtasks }),
+  reorder: (orders) => api.post('/subtask-categories/reorder/', { orders }),
+  duplicate: (id) => api.post(`/subtask-categories/${id}/duplicate/`),
 };
 
 // Client Works API
@@ -187,7 +200,7 @@ export const tasksAPI = {
   getTimerStatus: (id) => api.get(`/tasks/${id}/timer_status/`),
 };
 
-// Work Type Assignments API
+// Task Category Assignments API
 export const workTypeAssignmentsAPI = {
   getAll: (params) => api.get('/work-type-assignments/', { params }),
   getById: (id) => api.get(`/work-type-assignments/${id}/`),
@@ -327,8 +340,18 @@ export const subscriptionPlansAPI = {
   delete: (id) => api.delete(`/subscription-plans/${id}/`),
   setDefault: (id) => api.post(`/subscription-plans/${id}/set_default/`),
   initializeDefaults: () => api.post('/subscription-plans/initialize_defaults/'),
+  getSyncFrequencyChoices: () => api.get('/subscription-plans/sync_frequency_choices/'),
   // Public endpoint - uses plain axios without auth interceptors
   getPublic: () => axios.get(`${API_BASE_URL}/subscription-plans/public/`),
+};
+
+// Google API Quota Monitoring (SuperAdmin)
+export const googleQuotaAPI = {
+  getSummary: (date) => api.get('/google-quota/summary/', { params: { date } }),
+  getHistory: (days = 7) => api.get('/google-quota/history/', { params: { days } }),
+  getByApi: (apiType, days = 7) => api.get('/google-quota/by_api/', { params: { api_type: apiType, days } }),
+  getAlerts: () => api.get('/google-quota/alerts/'),
+  updateQuotas: (data) => api.post('/google-quota/update_quotas/', data),
 };
 
 // Organization Emails API
@@ -361,6 +384,39 @@ export const notificationsAPI = {
   markRead: (id) => api.post(`/notifications/${id}/mark_read/`),
   markAllRead: () => api.post('/notifications/mark_all_read/'),
   getUnreadCount: () => api.get('/notifications/unread_count/'),
+};
+
+// Google Sync Hub API
+export const googleSyncAPI = {
+  // Connection Management
+  getConnectionStatus: () => api.get('/google-sync/connection_status/'),
+  getAuthUrl: (services) => api.get('/google-sync/auth_url/', { params: { services } }),
+  connect: (code, services) => api.post('/google-sync/connect/', { code, services }),
+  disconnect: () => api.post('/google-sync/disconnect/'),
+  updateServices: (services) => api.post('/google-sync/update_services/', services),
+
+  // Sync Settings (Admin)
+  getSettings: () => api.get('/google-sync/sync-settings/'),
+  updateSettings: (data) => api.put('/google-sync/sync-settings/', data),
+
+  // Task Sync
+  syncAllTasks: () => api.post('/google-sync/sync_all_tasks/'),
+  syncTask: (taskId) => api.post('/google-sync/sync_task/', { task_id: taskId }),
+
+  // Google Drive
+  getDriveFolders: () => api.get('/google-sync/drive_folders/'),
+  createClientFolders: (clientId) => api.post('/google-sync/create_client_folders/', { client_id: clientId }),
+
+  // Logs & Mappings
+  getSyncLogs: (params) => api.get('/google-sync/sync_logs/', { params }),
+  getTaskMappings: () => api.get('/google-sync/task_mappings/'),
+  getCalendarMappings: () => api.get('/google-sync/calendar_mappings/'),
+
+  // Google Resources
+  getTaskLists: () => api.get('/google-sync/task_lists/'),
+  getCalendars: () => api.get('/google-sync/calendars/'),
+  setTaskList: (taskListId) => api.post('/google-sync/set_task_list/', { task_list_id: taskListId }),
+  setCalendar: (calendarId) => api.post('/google-sync/set_calendar/', { calendar_id: calendarId }),
 };
 
 // Report Configurations API

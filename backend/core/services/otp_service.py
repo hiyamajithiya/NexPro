@@ -294,7 +294,7 @@ Account Details:
 
 Getting Started:
 1. Configure your organization settings
-2. Add work types (GST, TDS, etc.)
+2. Add task categories (GST, TDS, etc.)
 3. Add your team members
 4. Start adding clients
 
@@ -350,7 +350,7 @@ NexPro Team
                 </div>
                 <div class="step">
                     <div class="step-number">2</div>
-                    <div>Add work types (GST, TDS, Audit, etc.)</div>
+                    <div>Add task categories (GST, TDS, Audit, etc.)</div>
                 </div>
                 <div class="step">
                     <div class="step-number">3</div>
