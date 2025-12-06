@@ -827,7 +827,11 @@ class UserViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 from rest_framework.exceptions import ValidationError
                 raise ValidationError({'detail': error_message})
 
-            serializer.save(organization=organization)
+            user = serializer.save(organization=organization)
+
+            # Send welcome email to new user and notification to admins
+            from core.services.otp_service import OTPService
+            OTPService.send_new_user_notification(user, organization, created_by=self.request.user)
         else:
             serializer.save()
 

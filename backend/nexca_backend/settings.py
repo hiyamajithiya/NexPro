@@ -173,8 +173,8 @@ SIMPLE_JWT = {
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
 }
 
-# Frontend URL (for OAuth redirect)
-FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
+# Frontend URL (for OAuth redirect and email links)
+FRONTEND_URL = config('FRONTEND_URL', default='https://nexpro.chinmaytechnosoft.com')
 
 # CORS Settings - Production-ready
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=DEBUG, cast=bool)
