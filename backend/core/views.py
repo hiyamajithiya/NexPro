@@ -1152,9 +1152,9 @@ class ClientViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 )
                 print(f"[DEBUG] Created ClientWorkMapping: {client_work.id} for {work_type.work_name}")
 
-                # Auto-create first work instance using start_from_period date
-                work_instance = TaskAutomationService.create_work_instance(client_work, start_date=start_from_period)
-                print(f"[DEBUG] Created WorkInstance: {work_instance.id}, Status: {work_instance.status}, Auto-driven: {work_type.is_auto_driven}, Period: {work_instance.period_label}")
+                # Auto-create all work instances till financial year end (March 31st)
+                work_instances = TaskAutomationService.create_work_instances_till_fy_end(client_work, start_date=start_from_period)
+                print(f"[DEBUG] Created {len(work_instances)} WorkInstance(s) for {work_type.work_name} till FY end")
 
                 created_mappings.append(client_work)
 
@@ -1692,9 +1692,9 @@ class ClientWorkMappingViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         organization = getattr(request, 'organization', None)
         client_work = serializer.save(organization=organization)
 
-        # Auto-create first work instance using start_from_period if provided
+        # Auto-create all work instances till financial year end (March 31st)
         start_date = client_work.start_from_period if client_work.start_from_period else None
-        TaskAutomationService.create_work_instance(client_work, start_date=start_date)
+        TaskAutomationService.create_work_instances_till_fy_end(client_work, start_date=start_date)
 
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)

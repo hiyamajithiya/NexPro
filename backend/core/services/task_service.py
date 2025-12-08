@@ -450,6 +450,139 @@ class TaskAutomationService:
         return work_instance
 
     @staticmethod
+    def get_financial_year_end(from_date=None):
+        """
+        Get the end date of the current financial year (March 31st).
+        Indian financial year: April 1 to March 31
+
+        Args:
+            from_date: Date to calculate FY end from (defaults to today)
+
+        Returns:
+            date: March 31st of the current financial year
+        """
+        from datetime import datetime
+
+        if from_date is None:
+            from_date = timezone.now().date()
+        elif isinstance(from_date, str):
+            from_date = datetime.strptime(from_date, '%Y-%m-%d').date()
+
+        # If we're in Jan-March, FY ends this year's March 31
+        # If we're in Apr-Dec, FY ends next year's March 31
+        if from_date.month <= 3:
+            fy_end_year = from_date.year
+        else:
+            fy_end_year = from_date.year + 1
+
+        return datetime(fy_end_year, 3, 31).date()
+
+    @staticmethod
+    def create_work_instances_till_fy_end(client_work_mapping, start_date=None):
+        """
+        Create all work instances for a client work mapping till the end of the financial year.
+        This generates tasks from the start_date (or current period) till March 31st.
+
+        Args:
+            client_work_mapping: The ClientWorkMapping instance
+            start_date: Optional date to calculate the first period from (for new mappings)
+
+        Returns:
+            list: List of created WorkInstance objects
+        """
+        from datetime import datetime
+
+        frequency = client_work_mapping.effective_frequency
+        work_type = client_work_mapping.work_type
+        due_date_day = work_type.due_date_day
+
+        # Get financial year end date
+        fy_end = TaskAutomationService.get_financial_year_end(start_date)
+
+        # For ONE_TIME frequency, just create a single instance
+        if frequency == 'ONE_TIME':
+            instance = TaskAutomationService.create_work_instance(client_work_mapping, start_date)
+            return [instance] if instance else []
+
+        # For YEARLY frequency, only create one instance per financial year
+        if frequency == 'YEARLY':
+            instance = TaskAutomationService.create_work_instance(client_work_mapping, start_date)
+            return [instance] if instance else []
+
+        created_instances = []
+
+        # Determine the first period
+        if start_date:
+            if isinstance(start_date, str):
+                start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+            period_label, period_start, period_end, due_date = \
+                TaskAutomationService.calculate_period_from_date(
+                    frequency,
+                    start_date,
+                    due_date_day
+                )
+        else:
+            period_label, period_start, period_end, due_date = \
+                TaskAutomationService.calculate_next_period_and_due_date(frequency, due_date_day=due_date_day)
+
+        # Get assigned employee
+        assigned_to = None
+        assignment = WorkTypeAssignment.objects.filter(
+            work_type=work_type,
+            organization=client_work_mapping.organization,
+            is_active=True
+        ).select_related('employee').first()
+
+        if assignment:
+            assigned_to = assignment.employee
+
+        # Create tasks until we pass the financial year end
+        # All tasks are created as NOT_STARTED
+        # They will auto-start on reminder start day via scheduled job
+        iteration_count = 0
+        max_iterations = 12  # Safety limit (max 12 months)
+
+        while period_start <= fy_end and iteration_count < max_iterations:
+            iteration_count += 1
+
+            # Check if this period already exists
+            existing = WorkInstance.objects.filter(
+                client_work=client_work_mapping,
+                period_label=period_label
+            ).exists()
+
+            if not existing:
+                # All tasks created as NOT_STARTED
+                # Auto-driven tasks will be started automatically by scheduled job on reminder start day
+                work_instance = WorkInstance.objects.create(
+                    client_work=client_work_mapping,
+                    period_label=period_label,
+                    period_start=period_start,
+                    period_end=period_end,
+                    due_date=due_date,
+                    status='NOT_STARTED',
+                    started_on=None,
+                    assigned_to=assigned_to,
+                    organization=client_work_mapping.organization
+                )
+
+                # Generate reminders for this instance
+                TaskAutomationService.generate_reminders_for_instance(work_instance)
+
+                created_instances.append(work_instance)
+
+            # Calculate next period
+            period_label, period_start, period_end, due_date = \
+                TaskAutomationService.calculate_next_period_and_due_date(
+                    frequency,
+                    period_label,
+                    due_date,
+                    due_date_day
+                )
+
+        return created_instances
+
+    @staticmethod
     def generate_reminders_for_instance(work_instance):
         """
         Generate reminder instances for a work instance.
