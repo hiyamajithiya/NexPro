@@ -138,16 +138,57 @@ class EmailService:
         """
         try:
             work_instance = reminder_instance.work_instance
-            email_template = reminder_instance.reminder_rule.email_template
             organization = work_instance.organization
             work_type = work_instance.client_work.work_type
 
             # Build context
             context = EmailService.get_context_from_work_instance(work_instance)
 
-            # Render subject and body
-            subject = EmailService.render_template(email_template.subject_template, context)
-            body = EmailService.render_template(email_template.body_template, context)
+            # Check if reminder has a rule with template (old system)
+            if reminder_instance.reminder_rule and reminder_instance.reminder_rule.email_template:
+                email_template = reminder_instance.reminder_rule.email_template
+                subject = EmailService.render_template(email_template.subject_template, context)
+                body = EmailService.render_template(email_template.body_template, context)
+            else:
+                # Use default template for period-based reminders (new system)
+                recipient_type = reminder_instance.recipient_type
+                work_name = context.get('work_name', 'Task')
+                client_name = context.get('client_name', 'Client')
+                period_label = context.get('period_label', '')
+                due_date = context.get('due_date', '')
+                status_display = work_instance.get_status_display()
+
+                if recipient_type == 'CLIENT':
+                    subject = f"Reminder: {work_name} - {client_name}"
+                    body = f"""Dear {client_name},
+
+This is a reminder for the following task:
+
+Task: {work_name}
+Period: {period_label}
+Due Date: {due_date}
+Status: {status_display}
+
+Please ensure timely completion of this task.
+
+Thank you,
+{organization.name if organization else 'NexPro'}"""
+                else:  # EMPLOYEE
+                    subject = f"Task Reminder: {work_name} - {client_name}"
+                    body = f"""Hello,
+
+This is a reminder for the following task assigned to you:
+
+Client: {client_name}
+Task: {work_name}
+Period: {period_label}
+Due Date: {due_date}
+Status: {status_display}
+
+Please update the task status as you progress.
+
+Best regards,
+{organization.name if organization else 'NexPro'}"""
 
             # Store rendered content
             reminder_instance.subject_rendered = subject

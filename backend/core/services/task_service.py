@@ -98,28 +98,28 @@ class ReminderGenerationService:
             )
 
             for reminder_date in client_reminder_dates:
-                # Only create reminders for future dates
-                if reminder_date >= today:
-                    scheduled_at = timezone.make_aware(
-                        datetime.combine(reminder_date, datetime.min.time().replace(hour=9, minute=0))
-                    )
+                # Create reminders for all dates (past, today, and future)
+                # Past reminders will be marked as overdue and sent immediately
+                scheduled_at = timezone.make_aware(
+                    datetime.combine(reminder_date, datetime.min.time().replace(hour=9, minute=0))
+                )
 
-                    # Avoid duplicate reminders
-                    if not ReminderInstance.objects.filter(
+                # Avoid duplicate reminders
+                if not ReminderInstance.objects.filter(
+                    work_instance=work_instance,
+                    recipient_type='CLIENT',
+                    scheduled_at__date=reminder_date,
+                    send_status__in=['PENDING', 'SENT']
+                ).exists():
+                    ReminderInstance.objects.create(
+                        organization=work_instance.organization,
                         work_instance=work_instance,
                         recipient_type='CLIENT',
-                        scheduled_at__date=reminder_date,
-                        send_status__in=['PENDING', 'SENT']
-                    ).exists():
-                        ReminderInstance.objects.create(
-                            organization=work_instance.organization,
-                            work_instance=work_instance,
-                            recipient_type='CLIENT',
-                            scheduled_at=scheduled_at,
-                            email_to=client.email,
-                            send_status='PENDING',
-                            repeat_count=0
-                        )
+                        scheduled_at=scheduled_at,
+                        email_to=client.email,
+                        send_status='PENDING',
+                        repeat_count=0
+                    )
 
         # Generate EMPLOYEE reminders
         if work_type.enable_employee_reminders and work_instance.assigned_to:
@@ -142,56 +142,56 @@ class ReminderGenerationService:
             )
 
             for reminder_date in employee_reminder_dates:
-                # Only create reminders for future dates
-                if reminder_date >= today:
-                    scheduled_at = timezone.make_aware(
-                        datetime.combine(reminder_date, datetime.min.time().replace(hour=9, minute=0))
-                    )
+                # Create reminders for all dates (past, today, and future)
+                # Past reminders will be marked as overdue and sent immediately
+                scheduled_at = timezone.make_aware(
+                    datetime.combine(reminder_date, datetime.min.time().replace(hour=9, minute=0))
+                )
 
-                    # Create EMAIL reminder if notification type includes email AND user wants email reminders
-                    if notification_type in ['EMAIL', 'BOTH'] and employee_email and user_wants_email_reminders:
-                        # Avoid duplicate email reminders
-                        if not ReminderInstance.objects.filter(
+                # Create EMAIL reminder if notification type includes email AND user wants email reminders
+                if notification_type in ['EMAIL', 'BOTH'] and employee_email and user_wants_email_reminders:
+                    # Avoid duplicate email reminders
+                    if not ReminderInstance.objects.filter(
+                        work_instance=work_instance,
+                        recipient_type='EMPLOYEE',
+                        scheduled_at__date=reminder_date,
+                        send_status__in=['PENDING', 'SENT']
+                    ).exists():
+                        ReminderInstance.objects.create(
+                            organization=work_instance.organization,
                             work_instance=work_instance,
                             recipient_type='EMPLOYEE',
-                            scheduled_at__date=reminder_date,
-                            send_status__in=['PENDING', 'SENT']
-                        ).exists():
-                            ReminderInstance.objects.create(
-                                organization=work_instance.organization,
-                                work_instance=work_instance,
-                                recipient_type='EMPLOYEE',
-                                scheduled_at=scheduled_at,
-                                email_to=employee_email,
-                                send_status='PENDING',
-                                repeat_count=0
-                            )
+                            scheduled_at=scheduled_at,
+                            email_to=employee_email,
+                            send_status='PENDING',
+                            repeat_count=0
+                        )
 
-                    # Create IN-APP notification if notification type includes in-app
-                    if notification_type in ['IN_APP', 'BOTH']:
-                        # Avoid duplicate in-app notifications
-                        if not Notification.objects.filter(
-                            work_instance=work_instance,
+                # Create IN-APP notification if notification type includes in-app
+                if notification_type in ['IN_APP', 'BOTH']:
+                    # Avoid duplicate in-app notifications
+                    if not Notification.objects.filter(
+                        work_instance=work_instance,
+                        user=employee,
+                        notification_type='REMINDER',
+                        created_at__date=reminder_date
+                    ).exists():
+                        # Create notification (will be shown immediately when date arrives)
+                        client_name = work_instance.client_work.client.client_name
+                        work_name = work_type.work_name
+                        period = work_instance.period_label
+                        days_left = (work_instance.due_date - reminder_date).days
+
+                        Notification.objects.create(
+                            organization=work_instance.organization,
                             user=employee,
                             notification_type='REMINDER',
-                            created_at__date=reminder_date
-                        ).exists():
-                            # Create notification (will be shown immediately when date arrives)
-                            client_name = work_instance.client_work.client.client_name
-                            work_name = work_type.work_name
-                            period = work_instance.period_label
-                            days_left = (work_instance.due_date - reminder_date).days
-
-                            Notification.objects.create(
-                                organization=work_instance.organization,
-                                user=employee,
-                                notification_type='REMINDER',
-                                title=f"Reminder: {work_name} - {client_name}",
-                                message=f"Task '{work_name}' for {client_name} ({period}) is due in {days_left} day(s). Due date: {work_instance.due_date.strftime('%d %b %Y')}",
-                                priority='MEDIUM' if days_left > 3 else 'HIGH',
-                                work_instance=work_instance,
-                                action_url=f"/tasks?work_instance={work_instance.id}"
-                            )
+                            title=f"Reminder: {work_name} - {client_name}",
+                            message=f"Task '{work_name}' for {client_name} ({period}) is due in {days_left} day(s). Due date: {work_instance.due_date.strftime('%d %b %Y')}",
+                            priority='MEDIUM' if days_left > 3 else 'HIGH',
+                            work_instance=work_instance,
+                            action_url=f"/tasks?work_instance={work_instance.id}"
+                        )
 
     @staticmethod
     def cancel_reminders_for_completed_task(work_instance):
@@ -308,10 +308,70 @@ class TaskAutomationService:
         return period_label, next_start, period_end, next_due
 
     @staticmethod
-    def create_work_instance(client_work_mapping):
+    def calculate_period_from_date(frequency, start_date, due_date_day=20):
+        """
+        Calculate period label and due date based on a specific start date.
+        Used when creating the first task from a user-specified start date.
+
+        Args:
+            frequency: Task frequency (MONTHLY, QUARTERLY, YEARLY)
+            start_date: The date to calculate the period from (date object or string)
+            due_date_day: Day of month for due date
+
+        Returns: (period_label, period_start, period_end, due_date)
+        """
+        from datetime import datetime
+
+        # Convert string to date if needed
+        if isinstance(start_date, str):
+            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+
+        if frequency == 'MONTHLY':
+            # For monthly, the period is the month containing start_date
+            period_start = start_date.replace(day=1)
+            period_end = (period_start + relativedelta(months=1)) - timedelta(days=1)
+            due_date = (period_start + relativedelta(months=1)).replace(day=min(due_date_day, 28))
+            period_label = period_start.strftime('%b %Y')
+
+        elif frequency == 'QUARTERLY':
+            # Determine which quarter the start_date falls into
+            quarter = (start_date.month - 1) // 3 + 1
+            quarter_start_month = (quarter - 1) * 3 + 1
+            period_start = start_date.replace(month=quarter_start_month, day=1)
+            period_end = (period_start + relativedelta(months=3)) - timedelta(days=1)
+            due_date = (period_start + relativedelta(months=3)).replace(day=min(due_date_day, 28))
+            period_label = f"Q{quarter} {period_start.year}"
+
+        elif frequency == 'YEARLY':
+            # Yearly tasks - fiscal year starting from April
+            if start_date.month >= 4:
+                fy_start_year = start_date.year
+            else:
+                fy_start_year = start_date.year - 1
+
+            period_start = datetime(fy_start_year, 4, 1).date()
+            period_end = datetime(fy_start_year + 1, 3, 31).date()
+            due_date = datetime(fy_start_year + 1, 4, min(due_date_day, 30)).date()
+            period_label = f"FY {fy_start_year}-{str(fy_start_year + 1)[-2:]}"
+
+        else:
+            # Default: treat as current period
+            period_start = start_date.replace(day=1)
+            period_end = (period_start + relativedelta(months=1)) - timedelta(days=1)
+            due_date = (period_start + relativedelta(months=1)).replace(day=min(due_date_day, 28))
+            period_label = period_start.strftime('%b %Y')
+
+        return period_label, period_start, period_end, due_date
+
+    @staticmethod
+    def create_work_instance(client_work_mapping, start_date=None):
         """
         Create a new work instance for a client work mapping.
         For auto-driven task categories, the task is automatically started.
+
+        Args:
+            client_work_mapping: The ClientWorkMapping instance
+            start_date: Optional date to calculate the first period from (for new mappings)
         """
         frequency = client_work_mapping.effective_frequency
         work_type = client_work_mapping.work_type
@@ -331,9 +391,19 @@ class TaskAutomationService:
                     due_date_day
                 )
         else:
-            # First instance
-            period_label, period_start, period_end, due_date = \
-                TaskAutomationService.calculate_next_period_and_due_date(frequency, due_date_day=due_date_day)
+            # First instance - use start_date if provided
+            if start_date:
+                # Calculate period based on the provided start date
+                period_label, period_start, period_end, due_date = \
+                    TaskAutomationService.calculate_period_from_date(
+                        frequency,
+                        start_date,
+                        due_date_day
+                    )
+            else:
+                # Default to current period
+                period_label, period_start, period_end, due_date = \
+                    TaskAutomationService.calculate_next_period_and_due_date(frequency, due_date_day=due_date_day)
 
         # Determine assigned employee:
         # 1. First check if there's a WorkTypeAssignment for this task category
@@ -370,7 +440,8 @@ class TaskAutomationService:
             due_date=due_date,
             status=initial_status,
             started_on=started_on,
-            assigned_to=assigned_to
+            assigned_to=assigned_to,
+            organization=client_work_mapping.organization
         )
 
         # Generate reminders for this instance

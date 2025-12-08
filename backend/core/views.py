@@ -68,6 +68,23 @@ class TenantViewSetMixin:
     Automatically filters querysets by organization and sets organization on create.
     """
 
+    def initial(self, request, *args, **kwargs):
+        """
+        Set request.organization after DRF authentication.
+        This runs after DRF's authentication but before the view method.
+        """
+        super().initial(request, *args, **kwargs)
+
+        # Set organization from authenticated user
+        # The custom JWT authentication loads it with select_related
+        if request.user and request.user.is_authenticated:
+            try:
+                request.organization = request.user.organization if request.user.organization_id else None
+            except AttributeError:
+                request.organization = None
+        else:
+            request.organization = None
+
     def get_queryset(self):
         """Filter queryset by current user's organization"""
         qs = super().get_queryset()
@@ -539,7 +556,7 @@ class ResetPasswordView(APIView):
 # ORGANIZATION VIEWS
 # =============================================================================
 
-class OrganizationViewSet(viewsets.ModelViewSet):
+class OrganizationViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing organizations.
     - Platform admins can view/edit all organizations
@@ -721,7 +738,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 # ORGANIZATION EMAIL VIEWS
 # =============================================================================
 
-class OrganizationEmailViewSet(viewsets.ModelViewSet):
+class OrganizationEmailViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing organization email accounts.
     Only admins can manage email accounts.
@@ -730,22 +747,10 @@ class OrganizationEmailViewSet(viewsets.ModelViewSet):
     serializer_class = OrganizationEmailSerializer
     permission_classes = [permissions.IsAuthenticated, IsOrganizationAdmin]
 
-    def get_queryset(self):
-        """Filter by current organization"""
-        organization = getattr(self.request, 'organization', None)
-        if organization:
-            return OrganizationEmail.objects.filter(organization=organization)
-        return OrganizationEmail.objects.none()
-
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
             return OrganizationEmailWriteSerializer
         return OrganizationEmailSerializer
-
-    def perform_create(self, serializer):
-        """Set organization on create"""
-        organization = getattr(self.request, 'organization', None)
-        serializer.save(organization=organization)
 
     @action(detail=True, methods=['post'])
     def set_default(self, request, pk=None):
@@ -1054,18 +1059,19 @@ class ClientViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Create client with plan limit check"""
+        from rest_framework.exceptions import ValidationError
+
         organization = getattr(self.request, 'organization', None)
 
-        if organization:
-            # Check client limit
-            can_add, error_message = PlanService.can_add_client(organization)
-            if not can_add:
-                from rest_framework.exceptions import ValidationError
-                raise ValidationError({'detail': error_message})
+        if not organization:
+            raise ValidationError({'detail': 'Organization is required to create a client. Please logout and login again.'})
 
-            serializer.save(organization=organization)
-        else:
-            serializer.save()
+        # Check client limit
+        can_add, error_message = PlanService.can_add_client(organization)
+        if not can_add:
+            raise ValidationError({'detail': error_message})
+
+        serializer.save(organization=organization)
 
     @action(detail=True, methods=['get'])
     def works(self, request, pk=None):
@@ -1086,10 +1092,13 @@ class ClientViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def assign_work_types(self, request, pk=None):
         """Assign multiple task categories to a client and create initial work instances"""
+        print(f"[ASSIGN WORK TYPES] pk={pk}, request.data={request.data}")
         client = self.get_object()
+        print(f"[ASSIGN WORK TYPES] Client: {client.id} - {client.client_name}")
         work_type_ids = request.data.get('work_type_ids', [])
         start_from_period = request.data.get('start_from_period', '')
         organization = getattr(request, 'organization', None)
+        print(f"[ASSIGN WORK TYPES] work_type_ids={work_type_ids}, start_from_period={start_from_period}, org={organization}")
 
         if not work_type_ids:
             return Response(
@@ -1141,9 +1150,12 @@ class ClientViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                     active=True,
                     organization=organization
                 )
+                print(f"[DEBUG] Created ClientWorkMapping: {client_work.id} for {work_type.work_name}")
 
-                # Auto-create first work instance
-                TaskAutomationService.create_work_instance(client_work)
+                # Auto-create first work instance using start_from_period date
+                work_instance = TaskAutomationService.create_work_instance(client_work, start_date=start_from_period)
+                print(f"[DEBUG] Created WorkInstance: {work_instance.id}, Status: {work_instance.status}, Auto-driven: {work_type.is_auto_driven}, Period: {work_instance.period_label}")
+
                 created_mappings.append(client_work)
 
             except Exception as e:
@@ -1159,6 +1171,62 @@ class ClientViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             return Response(response_data, status=status.HTTP_201_CREATED)
         else:
             return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'], url_path='unassign_work_type')
+    def unassign_work_type(self, request, pk=None):
+        """Remove a task category assignment from a client"""
+        client = self.get_object()
+        work_type_id = request.data.get('work_type_id')
+        organization = getattr(request, 'organization', None)
+
+        if not work_type_id:
+            return Response(
+                {'error': 'work_type_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            # Find the mapping
+            mapping_qs = ClientWorkMapping.objects.filter(
+                client=client,
+                work_type_id=work_type_id
+            )
+            if organization:
+                mapping_qs = mapping_qs.filter(organization=organization)
+
+            mapping = mapping_qs.first()
+
+            if not mapping:
+                return Response(
+                    {'error': 'Task category assignment not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Check if there are any work instances
+            instance_count = WorkInstance.objects.filter(client_work=mapping).count()
+
+            if instance_count > 0:
+                # Soft delete - mark as inactive instead of deleting
+                mapping.active = False
+                mapping.save()
+                message = f'Task category assignment deactivated. {instance_count} existing task(s) will remain.'
+            else:
+                # Hard delete if no instances exist
+                work_type_name = mapping.work_type.work_name
+                mapping.delete()
+                message = f'Task category "{work_type_name}" unassigned successfully.'
+
+            return Response({
+                'message': message,
+                'deleted': instance_count == 0,
+                'deactivated': instance_count > 0,
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @action(detail=False, methods=['get'])
     def download_template(self, request):
@@ -1624,8 +1692,9 @@ class ClientWorkMappingViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         organization = getattr(request, 'organization', None)
         client_work = serializer.save(organization=organization)
 
-        # Auto-create first work instance
-        TaskAutomationService.create_work_instance(client_work)
+        # Auto-create first work instance using start_from_period if provided
+        start_date = client_work.start_from_period if client_work.start_from_period else None
+        TaskAutomationService.create_work_instance(client_work, start_date=start_date)
 
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
@@ -2300,7 +2369,7 @@ class CredentialVaultViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
 # DASHBOARD VIEWS
 # =============================================================================
 
-class DashboardViewSet(viewsets.ViewSet):
+class DashboardViewSet(TenantViewSetMixin, viewsets.ViewSet):
     """Dashboard statistics and summary"""
     permission_classes = [permissions.IsAuthenticated]
 
@@ -2839,12 +2908,6 @@ class PlatformAdminViewSet(viewsets.ViewSet):
         from email.mime.multipart import MIMEMultipart
 
         platform_settings_obj = PlatformSettings.get_settings()
-
-        if not platform_settings_obj.smtp_enabled:
-            return Response(
-                {'error': 'SMTP is not enabled. Enable SMTP in settings first.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
 
         recipient_email = request.data.get('recipient_email')
         if not recipient_email:
