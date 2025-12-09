@@ -42,16 +42,18 @@ import {
   OpenInNew as OpenInNewIcon,
   Security as SecurityIcon,
   Refresh as RefreshIcon,
+  Login as LoginIcon,
 } from '@mui/icons-material';
 import { credentialsAPI, clientsAPI } from '../services/api';
+import { getErrorMessage } from '../utils/errorUtils';
 
 const PORTAL_TYPES = [
-  { value: 'GST', label: 'GST Portal' },
-  { value: 'INCOME_TAX', label: 'Income Tax Portal' },
-  { value: 'TDS', label: 'TDS Portal' },
-  { value: 'MCA', label: 'MCA Portal' },
-  { value: 'BANK', label: 'Bank Portal' },
-  { value: 'OTHERS', label: 'Others' },
+  { value: 'GST', label: 'GST Portal', url: 'https://services.gst.gov.in/services/login' },
+  { value: 'INCOME_TAX', label: 'Income Tax Portal', url: 'https://eportal.incometax.gov.in/iec/foservices/#/login' },
+  { value: 'TDS', label: 'TDS Portal', url: 'https://www.tdscpc.gov.in/app/login.xhtml' },
+  { value: 'MCA', label: 'MCA Portal', url: 'https://www.mca.gov.in/content/mca/global/en/mca/login.html' },
+  { value: 'BANK', label: 'Bank Portal', url: '' },
+  { value: 'OTHERS', label: 'Others', url: '' },
 ];
 
 const getPortalColor = (type) => {
@@ -101,7 +103,7 @@ export default function CredentialVault() {
       setCredentials(Array.isArray(credData) ? credData : (credData.results || []));
       setClients(Array.isArray(clientData) ? clientData : (clientData.results || []));
     } catch (error) {
-      showSnackbar('Failed to fetch data', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to fetch data'), 'error');
     } finally {
       setLoading(false);
     }
@@ -125,11 +127,13 @@ export default function CredentialVault() {
       });
     } else {
       setEditingCredential(null);
+      // Auto-fill URL for default GST portal type
+      const defaultPortal = PORTAL_TYPES.find(p => p.value === 'GST');
       setFormData({
         client: '',
         portal_type: 'GST',
         portal_name: '',
-        login_url: '',
+        login_url: defaultPortal?.url || '',
         username: '',
         password: '',
         extra_info: '',
@@ -160,7 +164,7 @@ export default function CredentialVault() {
       handleCloseDialog();
       fetchData();
     } catch (error) {
-      showSnackbar(error.response?.data?.detail || 'Operation failed', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to save credential'), 'error');
     }
   };
 
@@ -171,7 +175,7 @@ export default function CredentialVault() {
         showSnackbar('Credential deleted successfully', 'success');
         fetchData();
       } catch (error) {
-        showSnackbar('Failed to delete credential', 'error');
+        showSnackbar(getErrorMessage(error, 'Failed to delete credential'), 'error');
       }
     }
   };
@@ -203,24 +207,70 @@ export default function CredentialVault() {
         });
       }, 30000);
     } catch (error) {
-      showSnackbar('Failed to reveal password', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to reveal password'), 'error');
     } finally {
       setRevealingId(null);
     }
   };
 
   const handleCopyPassword = async (id) => {
+    // If password is already revealed, copy it directly
     if (revealedPasswords[id]) {
       await navigator.clipboard.writeText(revealedPasswords[id]);
       showSnackbar('Password copied to clipboard', 'success');
-    } else {
-      showSnackbar('Please reveal the password first', 'warning');
+      return;
+    }
+
+    // Otherwise, fetch and copy the password
+    setRevealingId(id);
+    try {
+      const response = await credentialsAPI.reveal(id);
+      const password = response.data.password;
+
+      // Copy to clipboard
+      await navigator.clipboard.writeText(password);
+      showSnackbar('Password copied to clipboard', 'success');
+
+      // Also store it in revealed passwords for convenience
+      setRevealedPasswords(prev => ({
+        ...prev,
+        [id]: password,
+      }));
+
+      // Auto-hide after 30 seconds
+      setTimeout(() => {
+        setRevealedPasswords(prev => {
+          const updated = { ...prev };
+          delete updated[id];
+          return updated;
+        });
+      }, 30000);
+    } catch (error) {
+      showSnackbar(getErrorMessage(error, 'Failed to copy password'), 'error');
+    } finally {
+      setRevealingId(null);
     }
   };
 
   const handleCopyUsername = async (username) => {
     await navigator.clipboard.writeText(username);
     showSnackbar('Username copied to clipboard', 'success');
+  };
+
+  const handleCopyAndOpenPortal = async (cred) => {
+    if (!cred.login_url) {
+      showSnackbar('Portal URL not configured', 'warning');
+      return;
+    }
+
+    // Copy username to clipboard
+    await navigator.clipboard.writeText(cred.username);
+    showSnackbar('Username copied! Opening portal...', 'info');
+
+    // Open portal in new tab after a short delay
+    setTimeout(() => {
+      window.open(cred.login_url, '_blank');
+    }, 500);
   };
 
   return (
@@ -376,24 +426,46 @@ export default function CredentialVault() {
                             <IconButton
                               size="small"
                               onClick={() => handleCopyPassword(cred.id)}
-                              disabled={!revealedPasswords[cred.id]}
+                              disabled={revealingId === cred.id}
                             >
-                              <CopyIcon fontSize="small" />
+                              {revealingId === cred.id ? (
+                                <CircularProgress size={16} />
+                              ) : (
+                                <CopyIcon fontSize="small" />
+                              )}
                             </IconButton>
                           </Tooltip>
                         </Box>
                       </TableCell>
                       <TableCell>
                         {cred.login_url ? (
-                          <Tooltip title="Open portal">
-                            <Button
-                              size="small"
-                              endIcon={<OpenInNewIcon fontSize="small" />}
-                              onClick={() => window.open(cred.login_url, '_blank')}
-                            >
-                              Open Portal
-                            </Button>
-                          </Tooltip>
+                          <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                            <Tooltip title="Copy username & open portal">
+                              <Button
+                                size="small"
+                                variant="contained"
+                                color="primary"
+                                startIcon={<LoginIcon fontSize="small" />}
+                                onClick={() => handleCopyAndOpenPortal(cred)}
+                                sx={{
+                                  textTransform: 'none',
+                                  fontSize: '0.75rem',
+                                  py: 0.5,
+                                  px: 1.5,
+                                }}
+                              >
+                                Login
+                              </Button>
+                            </Tooltip>
+                            <Tooltip title="Just open portal">
+                              <IconButton
+                                size="small"
+                                onClick={() => window.open(cred.login_url, '_blank')}
+                              >
+                                <OpenInNewIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
                         ) : (
                           <Typography variant="caption" color="text.secondary">
                             Not set
@@ -465,7 +537,18 @@ export default function CredentialVault() {
               <Select
                 value={formData.portal_type}
                 label="Portal Type *"
-                onChange={(e) => setFormData({ ...formData, portal_type: e.target.value })}
+                onChange={(e) => {
+                  const selectedType = e.target.value;
+                  const portalConfig = PORTAL_TYPES.find(p => p.value === selectedType);
+                  // Auto-fill URL only if login_url is empty or matches a default portal URL
+                  const currentUrlIsDefault = PORTAL_TYPES.some(p => p.url && formData.login_url === p.url);
+                  const shouldAutoFill = !formData.login_url || currentUrlIsDefault;
+                  setFormData({
+                    ...formData,
+                    portal_type: selectedType,
+                    login_url: shouldAutoFill && portalConfig?.url ? portalConfig.url : formData.login_url
+                  });
+                }}
               >
                 {PORTAL_TYPES.map((type) => (
                   <MenuItem key={type.value} value={type.value}>
@@ -536,6 +619,7 @@ export default function CredentialVault() {
         open={snackbar.open}
         autoHideDuration={4000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert
           onClose={() => setSnackbar({ ...snackbar, open: false })}

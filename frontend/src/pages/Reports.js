@@ -34,6 +34,11 @@ import {
   Snackbar,
   ButtonGroup,
   Tooltip as MuiTooltip,
+  Autocomplete,
+  Checkbox,
+  FormGroup,
+  Radio,
+  RadioGroup,
 } from '@mui/material';
 import {
   Download as DownloadIcon,
@@ -58,6 +63,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { format, subDays, startOfMonth, endOfMonth, startOfQuarter, endOfQuarter, startOfYear, subMonths } from 'date-fns';
 import { tasksAPI, clientsAPI, workTypesAPI, usersAPI, reportConfigurationsAPI } from '../services/api';
+import { getErrorMessage } from '../utils/errorUtils';
 import { DataGrid } from '@mui/x-data-grid';
 import {
   BarChart,
@@ -122,6 +128,9 @@ export default function Reports() {
     day_of_week: 0,
     day_of_month: 1,
     send_time: '09:00:00',
+    recipient_type: 'SPECIFIC_USERS',
+    recipient_user_ids: '',
+    recipient_roles: '',
     recipient_emails: '',
     include_summary: true,
     include_client_wise: true,
@@ -133,6 +142,14 @@ export default function Reports() {
     include_charts: true,
     report_period: 'LAST_7_DAYS',
   });
+
+  // Role options for BY_ROLE recipient type
+  const roleOptions = [
+    { value: 'ADMIN', label: 'Admin' },
+    { value: 'PARTNER', label: 'Partner' },
+    { value: 'MANAGER', label: 'Manager' },
+    { value: 'STAFF', label: 'Staff' },
+  ];
 
   useEffect(() => {
     loadFilterOptions();
@@ -173,7 +190,7 @@ export default function Reports() {
       setScheduledReports(Array.isArray(data) ? data : (data.results || []));
     } catch (error) {
       console.error('Error fetching scheduled reports:', error);
-      showSnackbar('Failed to fetch scheduled reports', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to fetch scheduled reports'), 'error');
       setScheduledReports([]);
     } finally {
       setScheduleLoading(false);
@@ -194,6 +211,9 @@ export default function Reports() {
         day_of_week: schedule.day_of_week ?? 0,
         day_of_month: schedule.day_of_month ?? 1,
         send_time: schedule.send_time || '09:00:00',
+        recipient_type: schedule.recipient_type || 'SPECIFIC_USERS',
+        recipient_user_ids: schedule.recipient_user_ids || '',
+        recipient_roles: schedule.recipient_roles || '',
         recipient_emails: schedule.recipient_emails || '',
         include_summary: schedule.include_summary ?? true,
         include_client_wise: schedule.include_client_wise ?? true,
@@ -214,6 +234,9 @@ export default function Reports() {
         day_of_week: 0,
         day_of_month: 1,
         send_time: '09:00:00',
+        recipient_type: 'SPECIFIC_USERS',
+        recipient_user_ids: '',
+        recipient_roles: '',
         recipient_emails: '',
         include_summary: true,
         include_client_wise: true,
@@ -246,7 +269,7 @@ export default function Reports() {
       handleCloseScheduleDialog();
       fetchScheduledReports();
     } catch (error) {
-      showSnackbar(error.response?.data?.detail || 'Operation failed', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to save scheduled report'), 'error');
     }
   };
 
@@ -257,7 +280,7 @@ export default function Reports() {
         showSnackbar('Scheduled report deleted successfully', 'success');
         fetchScheduledReports();
       } catch (error) {
-        showSnackbar('Failed to delete scheduled report', 'error');
+        showSnackbar(getErrorMessage(error, 'Failed to delete scheduled report'), 'error');
       }
     }
   };
@@ -269,7 +292,7 @@ export default function Reports() {
       showSnackbar('Report sent successfully', 'success');
       fetchScheduledReports();
     } catch (error) {
-      showSnackbar(error.response?.data?.error || 'Failed to send report', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to send report'), 'error');
     }
   };
 
@@ -284,7 +307,7 @@ export default function Reports() {
       link.click();
       link.remove();
     } catch (error) {
-      showSnackbar('Failed to download PDF', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to download PDF'), 'error');
     }
   };
 
@@ -761,7 +784,32 @@ export default function Reports() {
         />
       ),
     },
-    { field: 'recipient_emails', headerName: 'Recipients', flex: 1, minWidth: 200 },
+    {
+      field: 'recipients',
+      headerName: 'Recipients',
+      flex: 1,
+      minWidth: 200,
+      renderCell: (params) => {
+        const row = params.row;
+        if (row.recipient_type === 'BY_ROLE' && row.recipient_roles) {
+          const roles = row.recipient_roles.split(',').map(r => r.trim());
+          return (
+            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+              {roles.map((role, idx) => (
+                <Chip key={idx} label={role} size="small" color="secondary" variant="outlined" />
+              ))}
+            </Box>
+          );
+        } else if (row.recipient_list && row.recipient_list.length > 0) {
+          const emails = row.recipient_list;
+          if (emails.length <= 2) {
+            return emails.join(', ');
+          }
+          return `${emails.slice(0, 2).join(', ')} +${emails.length - 2} more`;
+        }
+        return row.recipient_emails || 'No recipients';
+      },
+    },
     {
       field: 'last_sent_at',
       headerName: 'Last Sent',
@@ -1400,15 +1448,132 @@ export default function Reports() {
                 </Grid>
               </Grid>
 
-              <TextField
-                label="Recipient Emails"
-                fullWidth
-                required
-                value={scheduleFormData.recipient_emails}
-                onChange={(e) => setScheduleFormData({ ...scheduleFormData, recipient_emails: e.target.value })}
-                placeholder="email1@example.com, email2@example.com"
-                helperText="Separate multiple email addresses with commas"
-              />
+              {/* Recipient Type Selection */}
+              <Typography variant="subtitle1" sx={{ fontWeight: 600, mt: 2 }}>
+                Report Recipients
+              </Typography>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Reports can only be sent to users within your organization. Select specific users or send to all users with specific roles.
+              </Alert>
+
+              <FormControl component="fieldset" sx={{ mb: 2 }}>
+                <RadioGroup
+                  row
+                  value={scheduleFormData.recipient_type}
+                  onChange={(e) => setScheduleFormData({
+                    ...scheduleFormData,
+                    recipient_type: e.target.value,
+                    // Clear the other selection when switching
+                    recipient_user_ids: e.target.value === 'BY_ROLE' ? '' : scheduleFormData.recipient_user_ids,
+                    recipient_roles: e.target.value === 'SPECIFIC_USERS' ? '' : scheduleFormData.recipient_roles,
+                  })}
+                >
+                  <FormControlLabel
+                    value="SPECIFIC_USERS"
+                    control={<Radio />}
+                    label="Specific Users"
+                  />
+                  <FormControlLabel
+                    value="BY_ROLE"
+                    control={<Radio />}
+                    label="All Users with Specific Roles"
+                  />
+                </RadioGroup>
+              </FormControl>
+
+              {/* Specific Users Selection */}
+              {scheduleFormData.recipient_type === 'SPECIFIC_USERS' && (
+                <Autocomplete
+                  multiple
+                  options={users}
+                  getOptionLabel={(option) => `${option.first_name || ''} ${option.last_name || ''} (${option.email || option.username})`.trim()}
+                  value={users.filter(user => {
+                    const selectedIds = scheduleFormData.recipient_user_ids
+                      ? scheduleFormData.recipient_user_ids.split(',').map(id => id.trim())
+                      : [];
+                    return selectedIds.includes(String(user.id));
+                  })}
+                  onChange={(event, newValue) => {
+                    const userIds = newValue.map(user => user.id).join(',');
+                    setScheduleFormData({ ...scheduleFormData, recipient_user_ids: userIds });
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Select Recipients"
+                      placeholder="Search and select users..."
+                      helperText="Select users from your organization to receive this report"
+                    />
+                  )}
+                  renderTags={(value, getTagProps) =>
+                    value.map((option, index) => (
+                      <Chip
+                        label={`${option.first_name || ''} ${option.last_name || option.username}`.trim()}
+                        size="small"
+                        {...getTagProps({ index })}
+                      />
+                    ))
+                  }
+                  renderOption={(props, option) => (
+                    <li {...props}>
+                      <Box>
+                        <Typography variant="body2">
+                          {option.first_name || ''} {option.last_name || option.username}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {option.email} • {option.role}
+                        </Typography>
+                      </Box>
+                    </li>
+                  )}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  sx={{ mb: 2 }}
+                />
+              )}
+
+              {/* Role-based Selection */}
+              {scheduleFormData.recipient_type === 'BY_ROLE' && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Select roles to receive this report:
+                  </Typography>
+                  <FormGroup row>
+                    {roleOptions.map((role) => {
+                      const selectedRoles = scheduleFormData.recipient_roles
+                        ? scheduleFormData.recipient_roles.split(',').map(r => r.trim())
+                        : [];
+                      const isChecked = selectedRoles.includes(role.value);
+
+                      return (
+                        <FormControlLabel
+                          key={role.value}
+                          control={
+                            <Checkbox
+                              checked={isChecked}
+                              onChange={(e) => {
+                                let newRoles;
+                                if (e.target.checked) {
+                                  newRoles = [...selectedRoles, role.value];
+                                } else {
+                                  newRoles = selectedRoles.filter(r => r !== role.value);
+                                }
+                                setScheduleFormData({
+                                  ...scheduleFormData,
+                                  recipient_roles: newRoles.join(',')
+                                });
+                              }}
+                            />
+                          }
+                          label={role.label}
+                        />
+                      );
+                    })}
+                  </FormGroup>
+                  <Typography variant="caption" color="text.secondary">
+                    Report will be sent to all active users with the selected roles
+                  </Typography>
+                </Box>
+              )}
 
               <Typography variant="subtitle1" sx={{ fontWeight: 600, mt: 2 }}>
                 Report Content
@@ -1528,7 +1693,11 @@ export default function Reports() {
             <Button
               onClick={handleSaveSchedule}
               variant="contained"
-              disabled={!scheduleFormData.name || !scheduleFormData.recipient_emails}
+              disabled={
+                !scheduleFormData.name ||
+                (scheduleFormData.recipient_type === 'SPECIFIC_USERS' && !scheduleFormData.recipient_user_ids) ||
+                (scheduleFormData.recipient_type === 'BY_ROLE' && !scheduleFormData.recipient_roles)
+              }
             >
               {editingSchedule ? 'Update' : 'Create'}
             </Button>
@@ -1540,6 +1709,7 @@ export default function Reports() {
           open={snackbar.open}
           autoHideDuration={4000}
           onClose={() => setSnackbar({ ...snackbar, open: false })}
+          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
         >
           <Alert
             onClose={() => setSnackbar({ ...snackbar, open: false })}

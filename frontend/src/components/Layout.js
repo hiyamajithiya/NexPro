@@ -42,9 +42,10 @@ import {
   Error as ErrorIcon,
   Info as InfoIcon,
   SyncAlt as SyncIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
-import { notificationsAPI } from '../services/api';
+import { notificationsAPI, workTypesAPI, emailTemplatesAPI } from '../services/api';
 
 const drawerWidth = 240;
 
@@ -122,6 +123,8 @@ export default function Layout() {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [missingTemplateCategories, setMissingTemplateCategories] = useState([]);
+  const [templateAlertDismissed, setTemplateAlertDismissed] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, isPlatformAdmin } = useAuth();
@@ -137,6 +140,41 @@ export default function Layout() {
     const interval = setInterval(fetchNotifications, 60000); // Refresh every minute
     return () => clearInterval(interval);
   }, []);
+
+  // Check for missing email templates (only for ADMIN and PARTNER roles)
+  useEffect(() => {
+    if (user?.role === 'ADMIN' || user?.role === 'PARTNER') {
+      checkMissingTemplates();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role, location.pathname]);
+
+  const checkMissingTemplates = async () => {
+    try {
+      const [workTypesRes, templatesRes] = await Promise.all([
+        workTypesAPI.getAll(),
+        emailTemplatesAPI.getAll()
+      ]);
+
+      const workTypes = Array.isArray(workTypesRes.data) ? workTypesRes.data : (workTypesRes.data.results || []);
+      const templates = Array.isArray(templatesRes.data) ? templatesRes.data : (templatesRes.data.results || []);
+
+      // Find task categories that have reminders enabled but no email template
+      const categoriesNeedingTemplates = workTypes.filter(wt => {
+        const hasClientTemplate = templates.some(t => t.work_type === wt.id && t.template_type === 'CLIENT');
+        const hasEmployeeTemplate = templates.some(t => t.work_type === wt.id && t.template_type === 'EMPLOYEE');
+        return (wt.enable_client_reminders && !hasClientTemplate) || (wt.enable_employee_reminders && !hasEmployeeTemplate);
+      });
+
+      setMissingTemplateCategories(categoriesNeedingTemplates);
+      // Reset dismissed state when categories change
+      if (categoriesNeedingTemplates.length === 0) {
+        setTemplateAlertDismissed(false);
+      }
+    } catch (error) {
+      console.error('Failed to check for missing templates:', error);
+    }
+  };
 
   const fetchNotifications = async () => {
     try {
@@ -358,8 +396,8 @@ export default function Layout() {
             onClick={handleNotificationMenuOpen}
             sx={{ mr: 1 }}
           >
-            <Badge badgeContent={unreadCount} color="error">
-              {unreadCount > 0 ? <NotificationsActiveIcon /> : <NotificationsIcon />}
+            <Badge badgeContent={unreadCount + (missingTemplateCategories.length > 0 ? 1 : 0)} color="error">
+              {(unreadCount > 0 || missingTemplateCategories.length > 0) ? <NotificationsActiveIcon /> : <NotificationsIcon />}
             </Badge>
           </IconButton>
 
@@ -393,7 +431,49 @@ export default function Layout() {
               )}
             </Box>
 
-            {notifications.length === 0 ? (
+            {/* Missing Email Templates Alert - shown at top of notifications */}
+            {missingTemplateCategories.length > 0 && !templateAlertDismissed && (
+              <Box
+                sx={{
+                  p: 2,
+                  bgcolor: '#fef3c7',
+                  borderBottom: '1px solid #fcd34d',
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: '#fde68a' },
+                }}
+                onClick={() => {
+                  handleNotificationMenuClose();
+                  navigate('/dashboard/templates?createTemplate=true');
+                }}
+              >
+                <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+                  <EmailIcon sx={{ color: '#d97706', fontSize: 20, mt: 0.3 }} />
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#92400e' }}>
+                      {missingTemplateCategories.length} Task {missingTemplateCategories.length === 1 ? 'Category needs' : 'Categories need'} email templates
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#a16207', display: 'block' }}>
+                      {missingTemplateCategories.map(wt => wt.work_name).join(', ')}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#b45309', display: 'block', mt: 0.5 }}>
+                      Click to create template →
+                    </Typography>
+                  </Box>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTemplateAlertDismissed(true);
+                    }}
+                    sx={{ color: '#92400e', p: 0.5 }}
+                  >
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              </Box>
+            )}
+
+            {notifications.length === 0 && (missingTemplateCategories.length === 0 || templateAlertDismissed) ? (
               <Box sx={{ p: 4, textAlign: 'center' }}>
                 <NotificationsIcon sx={{ fontSize: 48, color: '#d1d5db', mb: 1 }} />
                 <Typography color="text.secondary">

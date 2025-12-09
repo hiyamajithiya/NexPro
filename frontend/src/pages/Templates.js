@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Container,
   Typography,
@@ -34,8 +35,11 @@ import {
   Business as BusinessIcon,
 } from '@mui/icons-material';
 import { emailTemplatesAPI, workTypesAPI, reminderRulesAPI } from '../services/api';
+import { getErrorMessage } from '../utils/errorUtils';
 
 export default function Templates() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(0);
   const [templates, setTemplates] = useState([]);
   const [reminderRules, setReminderRules] = useState([]);
@@ -53,6 +57,18 @@ export default function Templates() {
   });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
+  // Check for createTemplate query parameter to auto-open dialog
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    if (searchParams.get('createTemplate') === 'true') {
+      // Remove the query parameter from URL
+      navigate('/dashboard/templates', { replace: true });
+      // Open the create dialog
+      handleOpenDialog();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
   useEffect(() => {
     fetchTemplates();
     fetchWorkTypes();
@@ -67,7 +83,7 @@ export default function Templates() {
       // Ensure templates is always an array
       setTemplates(Array.isArray(data) ? data : (data.results || []));
     } catch (error) {
-      showSnackbar('Failed to fetch templates', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to fetch templates'), 'error');
       setTemplates([]); // Set empty array on error
     } finally {
       setLoading(false);
@@ -131,7 +147,7 @@ export default function Templates() {
       handleCloseDialog();
       fetchTemplates();
     } catch (error) {
-      showSnackbar(error.response?.data?.detail || 'Operation failed', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to save template'), 'error');
     }
   };
 
@@ -142,7 +158,7 @@ export default function Templates() {
         showSnackbar('Template deleted successfully', 'success');
         fetchTemplates();
       } catch (error) {
-        showSnackbar('Failed to delete template', 'error');
+        showSnackbar(getErrorMessage(error, 'Failed to delete template'), 'error');
       }
     }
   };
@@ -153,7 +169,7 @@ export default function Templates() {
 
   const columns = [
     { field: 'template_name', headerName: 'Template Name', flex: 1, minWidth: 200 },
-    { field: 'work_type_name', headerName: 'Work Type', width: 180 },
+    { field: 'work_type_name', headerName: 'Task Category', width: 180 },
     {
       field: 'template_type',
       headerName: 'Type',
@@ -206,7 +222,7 @@ export default function Templates() {
   ];
 
   const reminderRuleColumns = [
-    { field: 'work_type_name', headerName: 'Work Type', flex: 1, minWidth: 180 },
+    { field: 'work_type_name', headerName: 'Task Category', flex: 1, minWidth: 180 },
     {
       field: 'reminder_type',
       headerName: 'Reminder Type',
@@ -295,9 +311,43 @@ export default function Templates() {
             sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
           >
             <Tab icon={<EmailIcon />} label="Email Templates" />
-            <Tab icon={<NotificationsIcon />} label="Reminder Rules" />
+            <Tab icon={<NotificationsIcon />} label="Reminder Configuration" />
           </Tabs>
         </Card>
+
+        {/* Alert for task categories needing templates */}
+        {(() => {
+          const categoriesNeedingTemplates = workTypes.filter(wt => {
+            const hasClientTemplate = templates.some(t => t.work_type === wt.id && t.template_type === 'CLIENT');
+            const hasEmployeeTemplate = templates.some(t => t.work_type === wt.id && t.template_type === 'EMPLOYEE');
+            return (wt.enable_client_reminders && !hasClientTemplate) || (wt.enable_employee_reminders && !hasEmployeeTemplate);
+          });
+
+          if (categoriesNeedingTemplates.length > 0) {
+            return (
+              <Alert
+                severity="warning"
+                sx={{ mb: 3, borderRadius: 2 }}
+                action={
+                  <Button color="inherit" size="small" onClick={() => handleOpenDialog()}>
+                    Create Template
+                  </Button>
+                }
+              >
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {categoriesNeedingTemplates.length} Task {categoriesNeedingTemplates.length === 1 ? 'Category' : 'Categories'} need email templates:
+                </Typography>
+                <Typography variant="body2">
+                  {categoriesNeedingTemplates.map(wt => wt.work_name).join(', ')}
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                  Without email templates, reminders will use default system messages.
+                </Typography>
+              </Alert>
+            );
+          }
+          return null;
+        })()}
 
         {activeTab === 0 && (
           <Card sx={{ borderRadius: 3, boxShadow: 3 }}>
@@ -322,33 +372,101 @@ export default function Templates() {
 
         {activeTab === 1 && (
           <Card sx={{ borderRadius: 3, boxShadow: 3 }}>
-            {reminderRules.length > 0 ? (
-              <Box sx={{ height: 600, width: '100%' }}>
-                <DataGrid
-                  rows={Array.isArray(reminderRules) ? reminderRules : []}
-                  columns={reminderRuleColumns}
-                  pageSize={10}
-                  rowsPerPageOptions={[10, 25, 50]}
-                  disableSelectionOnClick
-                  sx={{
-                    border: 'none',
-                    '& .MuiDataGrid-cell:focus': {
-                      outline: 'none',
+            {/* Show task categories with reminder configuration */}
+            <Box sx={{ height: 600, width: '100%' }}>
+              <DataGrid
+                rows={Array.isArray(workTypes) ? workTypes.filter(wt => wt.enable_client_reminders || wt.enable_employee_reminders) : []}
+                columns={[
+                  { field: 'work_name', headerName: 'Task Category', flex: 1, minWidth: 180 },
+                  {
+                    field: 'enable_client_reminders',
+                    headerName: 'Client Reminders',
+                    width: 140,
+                    renderCell: (params) => (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        {params.value ? (
+                          <><PersonIcon fontSize="small" color="primary" /> Enabled</>
+                        ) : (
+                          <Box sx={{ color: 'text.disabled' }}>Disabled</Box>
+                        )}
+                      </Box>
+                    ),
+                  },
+                  {
+                    field: 'enable_employee_reminders',
+                    headerName: 'Employee Reminders',
+                    width: 160,
+                    renderCell: (params) => (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        {params.value ? (
+                          <><BusinessIcon fontSize="small" color="info" /> Enabled</>
+                        ) : (
+                          <Box sx={{ color: 'text.disabled' }}>Disabled</Box>
+                        )}
+                      </Box>
+                    ),
+                  },
+                  {
+                    field: 'client_reminder_frequency_type',
+                    headerName: 'Client Frequency',
+                    width: 140,
+                    renderCell: (params) => params.row.enable_client_reminders ? params.value?.replace('_', ' ') : '-',
+                  },
+                  {
+                    field: 'employee_reminder_frequency_type',
+                    headerName: 'Employee Frequency',
+                    width: 150,
+                    renderCell: (params) => params.row.enable_employee_reminders ? params.value?.replace('_', ' ') : '-',
+                  },
+                  {
+                    field: 'has_template',
+                    headerName: 'Email Template',
+                    width: 140,
+                    renderCell: (params) => {
+                      const hasClientTemplate = templates.some(t => t.work_type === params.row.id && t.template_type === 'CLIENT');
+                      const hasEmployeeTemplate = templates.some(t => t.work_type === params.row.id && t.template_type === 'EMPLOYEE');
+                      const needsClientTemplate = params.row.enable_client_reminders && !hasClientTemplate;
+                      const needsEmployeeTemplate = params.row.enable_employee_reminders && !hasEmployeeTemplate;
+
+                      if (needsClientTemplate || needsEmployeeTemplate) {
+                        return (
+                          <Box sx={{ color: 'warning.main', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <EmailIcon fontSize="small" />
+                            Create Template
+                          </Box>
+                        );
+                      }
+                      return (
+                        <Box sx={{ color: 'success.main', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <EmailIcon fontSize="small" />
+                          Configured
+                        </Box>
+                      );
                     },
-                  }}
-                />
-              </Box>
-            ) : (
+                  },
+                ]}
+                pageSize={10}
+                rowsPerPageOptions={[10, 25, 50]}
+                disableSelectionOnClick
+                sx={{
+                  border: 'none',
+                  '& .MuiDataGrid-cell:focus': {
+                    outline: 'none',
+                  },
+                }}
+              />
+            </Box>
+            {workTypes.filter(wt => wt.enable_client_reminders || wt.enable_employee_reminders).length === 0 && (
               <Box sx={{ textAlign: 'center', py: 8 }}>
                 <NotificationsIcon sx={{ fontSize: 80, color: 'text.secondary', mb: 2 }} />
                 <Typography variant="h5" gutterBottom color="text.secondary">
-                  No Reminder Rules Created
+                  No Task Categories with Reminders
                 </Typography>
                 <Typography variant="body1" color="text.secondary">
-                  Reminder schedules are now configured directly on each Work Type.
+                  Reminder schedules are configured on each Task Category.
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  Go to Work Types → Edit → Reminder Configuration to set up client and employee reminders.
+                  Go to Task Categories → Edit → Reminder Configuration to enable client and employee reminders.
                 </Typography>
               </Box>
             )}
@@ -365,40 +483,111 @@ export default function Templates() {
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
             <Box sx={{ display: 'flex', gap: 2 }}>
               <FormControl fullWidth required>
-                <InputLabel>Work Type</InputLabel>
+                <InputLabel>Task Category</InputLabel>
                 <Select
                   value={formData.work_type}
-                  label="Work Type"
-                  onChange={(e) => setFormData({ ...formData, work_type: e.target.value })}
+                  label="Task Category"
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    const selectedWt = workTypes.find(wt => wt.id === selectedId);
+                    let newTemplateType = formData.template_type;
+
+                    // Auto-select template type based on enabled reminders that still need templates
+                    if (selectedWt) {
+                      const hasClientTemplate = templates.some(t => t.work_type === selectedWt.id && t.template_type === 'CLIENT');
+                      const hasEmployeeTemplate = templates.some(t => t.work_type === selectedWt.id && t.template_type === 'EMPLOYEE');
+                      const needsClient = selectedWt.enable_client_reminders && !hasClientTemplate;
+                      const needsEmployee = selectedWt.enable_employee_reminders && !hasEmployeeTemplate;
+
+                      // If current selection is invalid for this work type, switch it
+                      if (newTemplateType === 'CLIENT' && !needsClient && needsEmployee) {
+                        newTemplateType = 'EMPLOYEE';
+                      } else if (newTemplateType === 'EMPLOYEE' && !needsEmployee && needsClient) {
+                        newTemplateType = 'CLIENT';
+                      }
+                      // If only one option is available, select it
+                      else if (needsClient && !needsEmployee) {
+                        newTemplateType = 'CLIENT';
+                      } else if (needsEmployee && !needsClient) {
+                        newTemplateType = 'EMPLOYEE';
+                      }
+                    }
+
+                    setFormData({ ...formData, work_type: selectedId, template_type: newTemplateType });
+                  }}
                 >
-                  {Array.isArray(workTypes) && workTypes.map((workType) => (
-                    <MenuItem key={workType.id} value={workType.id}>
-                      {workType.work_name} ({workType.statutory_form || 'N/A'})
-                    </MenuItem>
-                  ))}
+                  {/* Only show task categories that have reminders enabled AND are missing at least one template */}
+                  {Array.isArray(workTypes) && workTypes
+                    .filter(wt => {
+                      // Must have at least one reminder type enabled
+                      if (!wt.enable_client_reminders && !wt.enable_employee_reminders) return false;
+                      // Check if it still needs a template
+                      const hasClientTemplate = templates.some(t => t.work_type === wt.id && t.template_type === 'CLIENT');
+                      const hasEmployeeTemplate = templates.some(t => t.work_type === wt.id && t.template_type === 'EMPLOYEE');
+                      const needsClientTemplate = wt.enable_client_reminders && !hasClientTemplate;
+                      const needsEmployeeTemplate = wt.enable_employee_reminders && !hasEmployeeTemplate;
+                      return needsClientTemplate || needsEmployeeTemplate;
+                    })
+                    .map((workType) => (
+                      <MenuItem key={workType.id} value={workType.id}>
+                        {workType.work_name} ({workType.statutory_form || 'N/A'})
+                      </MenuItem>
+                    ))}
                 </Select>
               </FormControl>
 
               <FormControl fullWidth required>
                 <InputLabel>Template Type</InputLabel>
-                <Select
-                  value={formData.template_type}
-                  label="Template Type"
-                  onChange={(e) => setFormData({ ...formData, template_type: e.target.value })}
-                >
-                  <MenuItem value="CLIENT">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <PersonIcon fontSize="small" color="primary" />
-                      Client Reminder
-                    </Box>
-                  </MenuItem>
-                  <MenuItem value="EMPLOYEE">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <BusinessIcon fontSize="small" color="info" />
-                      Employee/Internal Reminder
-                    </Box>
-                  </MenuItem>
-                </Select>
+                {(() => {
+                  const selectedWorkType = workTypes.find(wt => wt.id === formData.work_type);
+
+                  // Check which templates are still needed (not just which reminders are enabled)
+                  let showClient = false;
+                  let showEmployee = false;
+
+                  if (selectedWorkType) {
+                    const hasClientTemplate = templates.some(t => t.work_type === selectedWorkType.id && t.template_type === 'CLIENT');
+                    const hasEmployeeTemplate = templates.some(t => t.work_type === selectedWorkType.id && t.template_type === 'EMPLOYEE');
+                    showClient = selectedWorkType.enable_client_reminders && !hasClientTemplate;
+                    showEmployee = selectedWorkType.enable_employee_reminders && !hasEmployeeTemplate;
+                  }
+
+                  // Determine the correct value to display
+                  let displayValue = formData.template_type;
+                  if (selectedWorkType) {
+                    // If current value is not available, switch to available option
+                    if (displayValue === 'CLIENT' && !showClient && showEmployee) {
+                      displayValue = 'EMPLOYEE';
+                    } else if (displayValue === 'EMPLOYEE' && !showEmployee && showClient) {
+                      displayValue = 'CLIENT';
+                    }
+                  }
+
+                  return (
+                    <Select
+                      value={displayValue}
+                      label="Template Type"
+                      onChange={(e) => setFormData({ ...formData, template_type: e.target.value })}
+                    >
+                      {showClient && (
+                        <MenuItem value="CLIENT">
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <PersonIcon fontSize="small" color="primary" />
+                            Client Reminder
+                          </Box>
+                        </MenuItem>
+                      )}
+                      {showEmployee && (
+                        <MenuItem value="EMPLOYEE">
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <BusinessIcon fontSize="small" color="info" />
+                            Employee/Internal Reminder
+                          </Box>
+                        </MenuItem>
+                      )}
+                    </Select>
+                  );
+                })()}
               </FormControl>
             </Box>
 
@@ -449,7 +638,7 @@ export default function Templates() {
               </Typography>
               <Typography variant="body2" component="div">
                 • <code>{'{{client_name}}'}</code> - Client name<br />
-                • <code>{'{{work_name}}'}</code> - Work type name<br />
+                • <code>{'{{work_name}}'}</code> - Task category name<br />
                 • <code>{'{{due_date}}'}</code> - Task due date<br />
                 • <code>{'{{period_label}}'}</code> - Period label (e.g., Jan 2025)<br />
                 • <code>{'{{PAN}}'}</code> - Client PAN<br />
@@ -477,6 +666,7 @@ export default function Templates() {
         open={snackbar.open}
         autoHideDuration={4000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert
           onClose={() => setSnackbar({ ...snackbar, open: false })}

@@ -62,16 +62,18 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 class OrganizationEmailSerializer(serializers.ModelSerializer):
     """Serializer for OrganizationEmail model - multiple email addresses per organization"""
     work_types_count = serializers.SerializerMethodField()
+    smtp_inherit_from_email = serializers.SerializerMethodField()
 
     class Meta:
         model = OrganizationEmail
         fields = [
             'id', 'email_address', 'display_name',
+            'smtp_source', 'smtp_inherit_from', 'smtp_inherit_from_email',
             'use_custom_smtp', 'smtp_host', 'smtp_port', 'smtp_username',
             'smtp_use_tls', 'is_active', 'is_default',
             'work_types_count', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['organization', 'created_at', 'updated_at']
+        read_only_fields = ['organization', 'created_at', 'updated_at', 'use_custom_smtp']
         extra_kwargs = {
             'smtp_password': {'write_only': True, 'required': False},
         }
@@ -79,6 +81,27 @@ class OrganizationEmailSerializer(serializers.ModelSerializer):
     def get_work_types_count(self, obj):
         """Count of work types using this email"""
         return obj.work_types.count()
+
+    def get_smtp_inherit_from_email(self, obj):
+        """Get the email address of the account we're inheriting SMTP from"""
+        if obj.smtp_inherit_from:
+            return obj.smtp_inherit_from.email_address
+        return None
+
+    def validate_smtp_inherit_from(self, value):
+        """Ensure we can only inherit from accounts in the same organization with custom SMTP"""
+        if value:
+            request = self.context.get('request')
+            if request and hasattr(request, 'organization'):
+                if value.organization != request.organization:
+                    raise serializers.ValidationError("Can only inherit SMTP from your own organization's email accounts")
+            # Prevent circular references
+            if self.instance and value.id == self.instance.id:
+                raise serializers.ValidationError("Cannot inherit SMTP settings from self")
+            # Ensure the source has custom SMTP configured
+            if value.smtp_source != 'CUSTOM':
+                raise serializers.ValidationError("Can only inherit from accounts with custom SMTP configured")
+        return value
 
     def create(self, validated_data):
         request = self.context.get('request')
@@ -142,6 +165,7 @@ class OrganizationRegistrationSerializer(serializers.Serializer):
             mobile=validated_data.get('admin_mobile', ''),
             organization=organization,
             role='ADMIN',
+            is_active=True,  # Ensure user is active after signup
         )
         user.set_password(validated_data['admin_password'])
         user.save()
@@ -169,6 +193,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['role'] = self.user.role
         data['first_name'] = self.user.first_name
         data['last_name'] = self.user.last_name
+        data['is_active'] = self.user.is_active
         data['is_platform_admin'] = self.user.is_platform_admin
 
         # Add organization info to response
@@ -384,12 +409,21 @@ class ClientWorkMappingSerializer(TenantModelSerializer):
     """Serializer for ClientWorkMapping model"""
     client_name = serializers.CharField(source='client.client_name', read_only=True)
     work_type_name = serializers.CharField(source='work_type.work_name', read_only=True)
+    work_type = serializers.SerializerMethodField()
     effective_frequency = serializers.ReadOnlyField()
 
     class Meta:
         model = ClientWorkMapping
         fields = '__all__'
         read_only_fields = ['organization']
+
+    def get_work_type(self, obj):
+        """Return work_type details for frontend"""
+        return {
+            'id': obj.work_type.id,
+            'work_name': obj.work_type.work_name,
+            'statutory_form': obj.work_type.statutory_form,
+        }
 
 
 class WorkInstanceSerializer(TenantModelSerializer):
@@ -535,7 +569,9 @@ class ReportConfigurationSerializer(TenantModelSerializer):
     frequency_display = serializers.CharField(source='get_frequency_display', read_only=True)
     report_period_display = serializers.CharField(source='get_report_period_display', read_only=True)
     day_of_week_display = serializers.CharField(source='get_day_of_week_display', read_only=True)
+    recipient_type_display = serializers.CharField(source='get_recipient_type_display', read_only=True)
     recipient_list = serializers.SerializerMethodField()
+    recipient_users_details = serializers.SerializerMethodField()
 
     class Meta:
         model = ReportConfiguration
@@ -544,7 +580,9 @@ class ReportConfigurationSerializer(TenantModelSerializer):
             'frequency', 'frequency_display',
             'day_of_week', 'day_of_week_display',
             'day_of_month', 'send_time',
-            'recipient_emails', 'recipient_list',
+            'recipient_type', 'recipient_type_display',
+            'recipient_user_ids', 'recipient_roles',
+            'recipient_emails', 'recipient_list', 'recipient_users_details',
             'include_summary', 'include_client_wise', 'include_employee_wise',
             'include_work_type_wise', 'include_status_breakdown',
             'include_overdue_list', 'include_upcoming_dues', 'include_charts',
@@ -558,6 +596,66 @@ class ReportConfigurationSerializer(TenantModelSerializer):
     def get_recipient_list(self, obj):
         """Return list of recipient emails"""
         return obj.get_recipient_list()
+
+    def get_recipient_users_details(self, obj):
+        """Return details of recipient users for display in frontend"""
+        if obj.recipient_type == 'SPECIFIC_USERS' and obj.recipient_user_ids:
+            user_ids = [uid.strip() for uid in obj.recipient_user_ids.split(',') if uid.strip()]
+            users = User.objects.filter(
+                id__in=user_ids,
+                organization=obj.organization,
+                is_active=True
+            ).values('id', 'email', 'username', 'first_name', 'last_name', 'role')
+            return list(users)
+        return []
+
+    def validate(self, data):
+        """Validate recipient configuration"""
+        recipient_type = data.get('recipient_type', self.instance.recipient_type if self.instance else 'SPECIFIC_USERS')
+        recipient_user_ids = data.get('recipient_user_ids', '')
+        recipient_roles = data.get('recipient_roles', '')
+
+        # Get organization from context or instance
+        request = self.context.get('request')
+        organization = None
+        if request and hasattr(request.user, 'organization'):
+            organization = request.user.organization
+        elif self.instance:
+            organization = self.instance.organization
+
+        if recipient_type == 'SPECIFIC_USERS':
+            if not recipient_user_ids:
+                raise serializers.ValidationError({
+                    'recipient_user_ids': 'At least one recipient user must be selected.'
+                })
+            # Validate all user IDs belong to the organization
+            user_ids = [uid.strip() for uid in recipient_user_ids.split(',') if uid.strip()]
+            if organization:
+                valid_users = User.objects.filter(
+                    id__in=user_ids,
+                    organization=organization,
+                    is_active=True
+                ).count()
+                if valid_users != len(user_ids):
+                    raise serializers.ValidationError({
+                        'recipient_user_ids': 'One or more selected users are invalid or not part of your organization.'
+                    })
+
+        elif recipient_type == 'BY_ROLE':
+            if not recipient_roles:
+                raise serializers.ValidationError({
+                    'recipient_roles': 'At least one role must be selected.'
+                })
+            # Validate roles are valid
+            valid_roles = ['ADMIN', 'PARTNER', 'MANAGER', 'STAFF']
+            roles = [role.strip() for role in recipient_roles.split(',') if role.strip()]
+            for role in roles:
+                if role not in valid_roles:
+                    raise serializers.ValidationError({
+                        'recipient_roles': f'Invalid role: {role}. Valid roles are: {", ".join(valid_roles)}'
+                    })
+
+        return data
 
 
 # =============================================================================
@@ -583,6 +681,30 @@ class PlatformSettingsSerializer(serializers.ModelSerializer):
         style={'input_type': 'password'}
     )
     google_client_secret_set = serializers.SerializerMethodField()
+
+    # SendGrid API Key - write-only for security
+    sendgrid_api_key = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        style={'input_type': 'password'}
+    )
+    sendgrid_api_key_set = serializers.SerializerMethodField()
+
+    # AWS Secret Access Key - write-only for security
+    aws_secret_access_key = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        style={'input_type': 'password'}
+    )
+    aws_secret_access_key_set = serializers.SerializerMethodField()
+
+    # Allow empty smtp_from_email
+    smtp_from_email = serializers.EmailField(
+        required=False,
+        allow_blank=True
+    )
 
     class Meta:
         model = PlatformSettings
@@ -613,6 +735,17 @@ class PlatformSettingsSerializer(serializers.ModelSerializer):
             'smtp_from_email',
             'smtp_from_name',
             'smtp_enabled',
+            # Email Provider Settings
+            'email_provider',
+            'sendgrid_api_key',
+            'sendgrid_api_key_set',
+            'aws_access_key_id',
+            'aws_secret_access_key',
+            'aws_secret_access_key_set',
+            'aws_region',
+            # Email Rate Limiting
+            'email_daily_limit_per_org',
+            'email_daily_limit_platform',
             # Google API Quota Settings
             'google_tasks_daily_quota',
             'google_calendar_daily_quota',
@@ -623,7 +756,7 @@ class PlatformSettingsSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'smtp_password_set', 'google_client_secret_set']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'smtp_password_set', 'google_client_secret_set', 'sendgrid_api_key_set', 'aws_secret_access_key_set']
 
     def get_smtp_password_set(self, obj):
         """Return whether SMTP password is configured (not the actual password)"""
@@ -632,6 +765,14 @@ class PlatformSettingsSerializer(serializers.ModelSerializer):
     def get_google_client_secret_set(self, obj):
         """Return whether Google Client Secret is configured (not the actual secret)"""
         return obj.has_google_client_secret()
+
+    def get_sendgrid_api_key_set(self, obj):
+        """Return whether SendGrid API key is configured"""
+        return obj.has_sendgrid_api_key()
+
+    def get_aws_secret_access_key_set(self, obj):
+        """Return whether AWS Secret Access Key is configured"""
+        return obj.has_aws_secret_access_key()
 
     def update(self, instance, validated_data):
         """Only update passwords/secrets if a new value is provided"""
@@ -644,6 +785,16 @@ class PlatformSettingsSerializer(serializers.ModelSerializer):
         google_client_secret = validated_data.get('google_client_secret', None)
         if google_client_secret == '' or google_client_secret is None:
             validated_data.pop('google_client_secret', None)
+
+        # Handle SendGrid API key
+        sendgrid_api_key = validated_data.get('sendgrid_api_key', None)
+        if sendgrid_api_key == '' or sendgrid_api_key is None:
+            validated_data.pop('sendgrid_api_key', None)
+
+        # Handle AWS Secret Access Key
+        aws_secret_access_key = validated_data.get('aws_secret_access_key', None)
+        if aws_secret_access_key == '' or aws_secret_access_key is None:
+            validated_data.pop('aws_secret_access_key', None)
 
         return super().update(instance, validated_data)
 
@@ -731,7 +882,7 @@ class CredentialVaultSerializer(TenantModelSerializer):
             instance.save()
         return instance
 
-    def update(self, validated_data, instance):
+    def update(self, instance, validated_data):
         password = validated_data.pop('password', None)
         instance = super().update(instance, validated_data)
         if password:

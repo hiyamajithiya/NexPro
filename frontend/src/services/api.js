@@ -120,6 +120,7 @@ export const clientsAPI = {
   getWorks: (id) => api.get(`/clients/${id}/works/`),
   getTasks: (id) => api.get(`/clients/${id}/tasks/`),
   assignWorkTypes: (id, data) => api.post(`/clients/${id}/assign_work_types/`, data),
+  unassignWorkType: (id, workTypeId) => api.post(`/clients/${id}/unassign_work_type/`, { work_type_id: workTypeId }),
   downloadTemplate: () => {
     const token = localStorage.getItem('access_token');
     const orgData = localStorage.getItem('organization');
@@ -334,6 +335,8 @@ export const platformAdminAPI = {
   getSettings: () => api.get('/platform-admin/settings/'),
   updateSettings: (data) => api.patch('/platform-admin/settings/', data),
   testSmtp: (data) => api.post('/platform-admin/test_smtp/', data),
+  // Email Usage Stats
+  getEmailUsage: (days = 30) => api.get(`/platform-admin/email_usage/?days=${days}`),
 };
 
 // Subscription Plans API (SuperAdmin)

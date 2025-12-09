@@ -30,6 +30,13 @@ import {
   Divider,
   Tabs,
   Tab,
+  Radio,
+  RadioGroup,
+  FormControl,
+  FormLabel,
+  Select,
+  MenuItem,
+  InputLabel,
 } from '@mui/material';
 import {
   Settings as SettingsIcon,
@@ -56,6 +63,7 @@ import {
 } from '@mui/icons-material';
 import { organizationEmailsAPI, usersAPI, organizationAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { getErrorMessage } from '../utils/errorUtils';
 
 // Tab Panel Component
 function TabPanel({ children, value, index, ...other }) {
@@ -142,7 +150,8 @@ export default function Settings() {
     display_name: '',
     is_active: true,
     is_default: false,
-    use_custom_smtp: false,
+    smtp_source: 'PLATFORM',  // PLATFORM, CUSTOM, or INHERIT
+    smtp_inherit_from: null,
     smtp_host: '',
     smtp_port: 587,
     smtp_username: '',
@@ -205,7 +214,7 @@ export default function Settings() {
         pan: orgResponse.data.pan || '',
       });
     } catch (err) {
-      showSnackbar('Failed to load organization data', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to load organization data'), 'error');
     } finally {
       setLoadingOrg(false);
     }
@@ -253,7 +262,7 @@ export default function Settings() {
       updateOrganization(response.data);
       showSnackbar('Organization settings updated successfully', 'success');
     } catch (err) {
-      showSnackbar(err.response?.data?.detail || 'Failed to update organization', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to update organization'), 'error');
     } finally {
       setSavingOrg(false);
     }
@@ -267,7 +276,8 @@ export default function Settings() {
         display_name: account.display_name || '',
         is_active: account.is_active,
         is_default: account.is_default,
-        use_custom_smtp: account.use_custom_smtp || false,
+        smtp_source: account.smtp_source || 'PLATFORM',
+        smtp_inherit_from: account.smtp_inherit_from || null,
         smtp_host: account.smtp_host || '',
         smtp_port: account.smtp_port || 587,
         smtp_username: account.smtp_username || '',
@@ -281,7 +291,8 @@ export default function Settings() {
         display_name: '',
         is_active: true,
         is_default: false,
-        use_custom_smtp: false,
+        smtp_source: 'PLATFORM',
+        smtp_inherit_from: null,
         smtp_host: '',
         smtp_port: 587,
         smtp_username: '',
@@ -309,7 +320,7 @@ export default function Settings() {
       handleCloseEmailAccountDialog();
       loadEmailAccounts();
     } catch (error) {
-      showSnackbar(error.response?.data?.detail || 'Failed to save email account', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to save email account'), 'error');
     }
   };
 
@@ -320,7 +331,7 @@ export default function Settings() {
         showSnackbar('Email account deleted successfully', 'success');
         loadEmailAccounts();
       } catch (error) {
-        showSnackbar('Failed to delete email account', 'error');
+        showSnackbar(getErrorMessage(error, 'Failed to delete email account'), 'error');
       }
     }
   };
@@ -331,7 +342,7 @@ export default function Settings() {
       showSnackbar('Default email updated', 'success');
       loadEmailAccounts();
     } catch (error) {
-      showSnackbar('Failed to set default email', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to set default email'), 'error');
     }
   };
 
@@ -351,7 +362,7 @@ export default function Settings() {
       showSnackbar('Notification preferences saved', 'success');
     } catch (error) {
       console.error('Error saving notification settings:', error);
-      showSnackbar('Failed to save notification settings', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to save notification settings'), 'error');
     } finally {
       setSavingNotifications(false);
     }
@@ -387,7 +398,7 @@ export default function Settings() {
         confirmPassword: '',
       });
     } catch (error) {
-      showSnackbar(error.response?.data?.error || 'Failed to change password', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to change password'), 'error');
     } finally {
       setChangingPassword(false);
     }
@@ -422,10 +433,7 @@ export default function Settings() {
       showSnackbar('Test email sent successfully! Check inbox.', 'success');
       handleCloseTestEmailDialog();
     } catch (error) {
-      showSnackbar(
-        error.response?.data?.error || 'Failed to send test email',
-        'error'
-      );
+      showSnackbar(getErrorMessage(error, 'Failed to send test email'), 'error');
     } finally {
       setSendingTestEmail(false);
     }
@@ -458,7 +466,7 @@ export default function Settings() {
       const response = await organizationAPI.getUpgradeRequests();
       setUpgradeRequests(response.data.requests || []);
     } catch (error) {
-      showSnackbar(error.response?.data?.error || 'Failed to submit upgrade request', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to submit upgrade request'), 'error');
     } finally {
       setSubmittingUpgrade(false);
     }
@@ -889,7 +897,13 @@ export default function Settings() {
               </Box>
 
               <Alert severity="info" sx={{ mb: 2 }}>
-                Configure multiple email addresses for different work types. Each work type can use a specific email for sending reminders.
+                <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+                  Configure multiple email addresses for different task categories
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Each email account can use either the platform's SMTP settings (default) or your own custom SMTP server.
+                  If you don't configure custom SMTP, emails will be sent using the platform settings.
+                </Typography>
               </Alert>
 
               {loadingEmailAccounts ? (
@@ -918,7 +932,7 @@ export default function Settings() {
                         <TableCell align="center">SMTP</TableCell>
                         <TableCell align="center">Default</TableCell>
                         <TableCell align="center">Status</TableCell>
-                        <TableCell align="center">Work Types</TableCell>
+                        <TableCell align="center">Task Categories</TableCell>
                         <TableCell align="right">Actions</TableCell>
                       </TableRow>
                     </TableHead>
@@ -929,8 +943,16 @@ export default function Settings() {
                           <TableCell>{account.display_name || '-'}</TableCell>
                           <TableCell align="center">
                             <Chip
-                              label={account.use_custom_smtp ? 'Custom' : 'Default'}
-                              color={account.use_custom_smtp ? 'info' : 'default'}
+                              label={
+                                account.smtp_source === 'CUSTOM' ? 'Custom SMTP' :
+                                account.smtp_source === 'INHERIT' ? `From: ${account.smtp_inherit_from_email || 'N/A'}` :
+                                'Platform SMTP'
+                              }
+                              color={
+                                account.smtp_source === 'CUSTOM' ? 'info' :
+                                account.smtp_source === 'INHERIT' ? 'secondary' :
+                                'success'
+                              }
                               size="small"
                               variant="outlined"
                             />
@@ -1231,31 +1253,104 @@ export default function Settings() {
             {/* SMTP Configuration */}
             <Grid item xs={12}>
               <Box sx={{ borderTop: '1px solid #e2e8f0', pt: 2, mt: 1 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={emailAccountForm.use_custom_smtp}
-                      onChange={(e) => setEmailAccountForm({ ...emailAccountForm, use_custom_smtp: e.target.checked })}
-                      color="primary"
-                    />
-                  }
-                  label={
-                    <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'primary.main' }}>
-                      Use Custom SMTP Settings
-                    </Typography>
-                  }
-                />
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 6 }}>
-                  Enable to configure specific SMTP server for this email account
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'primary.main', mb: 2 }}>
+                  Email Sending Configuration
                 </Typography>
+
+                <FormControl component="fieldset">
+                  <FormLabel component="legend" sx={{ fontSize: '0.875rem', mb: 1 }}>
+                    SMTP Settings Source
+                  </FormLabel>
+                  <RadioGroup
+                    value={emailAccountForm.smtp_source}
+                    onChange={(e) => setEmailAccountForm({
+                      ...emailAccountForm,
+                      smtp_source: e.target.value,
+                      smtp_inherit_from: e.target.value === 'INHERIT' ? emailAccountForm.smtp_inherit_from : null
+                    })}
+                  >
+                    <FormControlLabel
+                      value="PLATFORM"
+                      control={<Radio size="small" />}
+                      label={
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            Use Platform SMTP
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Emails sent using platform's SMTP configured by administrator
+                          </Typography>
+                        </Box>
+                      }
+                      sx={{ alignItems: 'flex-start', mb: 1 }}
+                    />
+                    <FormControlLabel
+                      value="INHERIT"
+                      control={<Radio size="small" />}
+                      label={
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            Use Another Account's SMTP
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Reuse SMTP settings from one of your other configured email accounts
+                          </Typography>
+                        </Box>
+                      }
+                      sx={{ alignItems: 'flex-start', mb: 1 }}
+                      disabled={emailAccounts.filter(a => (a.smtp_source === 'CUSTOM' || a.smtp_host) && a.id !== editingEmailAccount?.id).length === 0}
+                    />
+                    <FormControlLabel
+                      value="CUSTOM"
+                      control={<Radio size="small" />}
+                      label={
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            Configure Custom SMTP
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Enter your own SMTP server settings for this account
+                          </Typography>
+                        </Box>
+                      }
+                      sx={{ alignItems: 'flex-start' }}
+                    />
+                  </RadioGroup>
+                </FormControl>
               </Box>
             </Grid>
 
-            {emailAccountForm.use_custom_smtp && (
+            {/* Inherit SMTP Selection */}
+            {emailAccountForm.smtp_source === 'INHERIT' && (
+              <Grid item xs={12}>
+                <FormControl fullWidth sx={{ mt: 1 }}>
+                  <InputLabel>Inherit SMTP From</InputLabel>
+                  <Select
+                    value={emailAccountForm.smtp_inherit_from || ''}
+                    label="Inherit SMTP From"
+                    onChange={(e) => setEmailAccountForm({ ...emailAccountForm, smtp_inherit_from: e.target.value })}
+                  >
+                    {emailAccounts
+                      .filter(a => (a.smtp_source === 'CUSTOM' || a.smtp_host) && a.id !== editingEmailAccount?.id)
+                      .map((account) => (
+                        <MenuItem key={account.id} value={account.id}>
+                          {account.email_address} {account.display_name ? `(${account.display_name})` : ''}
+                        </MenuItem>
+                      ))}
+                  </Select>
+                </FormControl>
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  Emails will be sent using the SMTP settings from the selected account, but with this account's email address as the sender.
+                </Alert>
+              </Grid>
+            )}
+
+            {/* Custom SMTP Configuration */}
+            {emailAccountForm.smtp_source === 'CUSTOM' && (
               <>
                 <Grid item xs={12}>
-                  <Alert severity="info" sx={{ mb: 1 }}>
-                    Configure SMTP settings to send emails from this account. For Gmail, use App Passwords.
+                  <Alert severity="warning" sx={{ mt: 1, mb: 1 }}>
+                    Configure your SMTP server settings below. For Gmail, use App Passwords.
                   </Alert>
                 </Grid>
                 <Grid item xs={12} md={8}>
@@ -1445,6 +1540,7 @@ export default function Settings() {
         open={snackbar.open}
         autoHideDuration={4000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert
           onClose={() => setSnackbar({ ...snackbar, open: false })}

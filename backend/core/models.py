@@ -165,7 +165,29 @@ class OrganizationEmail(models.Model):
         help_text="Display name (e.g., 'GST Team', 'ITR Department')"
     )
 
-    # SMTP Configuration (optional - if not set, uses organization's default)
+    # SMTP Configuration (optional - if not set, uses platform's default)
+    # SMTP Source: 'PLATFORM' = use platform SMTP, 'CUSTOM' = own SMTP, 'INHERIT' = use another account's SMTP
+    SMTP_SOURCE_CHOICES = [
+        ('PLATFORM', 'Use Platform SMTP'),
+        ('CUSTOM', 'Custom SMTP Settings'),
+        ('INHERIT', 'Use Another Account\'s SMTP'),
+    ]
+    smtp_source = models.CharField(
+        max_length=20,
+        choices=SMTP_SOURCE_CHOICES,
+        default='PLATFORM',
+        help_text="Where to get SMTP settings from"
+    )
+    # Reference to another email account to inherit SMTP settings from
+    smtp_inherit_from = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='smtp_dependents',
+        help_text="Inherit SMTP settings from this email account"
+    )
+    # Legacy field - kept for backwards compatibility, now derived from smtp_source
     use_custom_smtp = models.BooleanField(
         default=False,
         help_text="Use custom SMTP settings instead of default"
@@ -213,7 +235,37 @@ class OrganizationEmail(models.Model):
             if existing_count == 0:
                 self.is_default = True
 
+        # Sync use_custom_smtp with smtp_source for backwards compatibility
+        self.use_custom_smtp = (self.smtp_source == 'CUSTOM')
+
+        # Clear inherit reference if not using INHERIT source
+        if self.smtp_source != 'INHERIT':
+            self.smtp_inherit_from = None
+
         super().save(*args, **kwargs)
+
+    def get_effective_smtp_settings(self):
+        """
+        Get the effective SMTP settings for this email account.
+        Returns a dict with SMTP config or None if using platform SMTP.
+        """
+        if self.smtp_source == 'PLATFORM':
+            return None  # Use platform SMTP
+
+        if self.smtp_source == 'INHERIT' and self.smtp_inherit_from:
+            # Get settings from the inherited account (recursively)
+            return self.smtp_inherit_from.get_effective_smtp_settings()
+
+        if self.smtp_source == 'CUSTOM' and self.smtp_host:
+            return {
+                'host': self.smtp_host,
+                'port': self.smtp_port or 587,
+                'username': self.smtp_username,
+                'password': self.smtp_password,
+                'use_tls': self.smtp_use_tls,
+            }
+
+        return None  # Fallback to platform SMTP
 
 
 class Subscription(models.Model):
@@ -1642,9 +1694,38 @@ class ReportConfiguration(TenantModel):
         help_text="Time of day to send the report (24-hour format)"
     )
 
-    # Recipients
+    # Recipients - Type determines how recipients are selected
+    RECIPIENT_TYPE_CHOICES = [
+        ('SPECIFIC_USERS', 'Specific Users'),
+        ('BY_ROLE', 'All Users with Specific Roles'),
+    ]
+
+    recipient_type = models.CharField(
+        max_length=20,
+        choices=RECIPIENT_TYPE_CHOICES,
+        default='SPECIFIC_USERS',
+        help_text="How to determine report recipients"
+    )
+
+    # For SPECIFIC_USERS: comma-separated user IDs (not external emails)
+    recipient_user_ids = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Comma-separated list of user IDs within the organization"
+    )
+
+    # For BY_ROLE: which roles should receive the report
+    recipient_roles = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Comma-separated list of roles (ADMIN, PARTNER, MANAGER, STAFF)"
+    )
+
+    # Legacy field - kept for backward compatibility, now derived from users
     recipient_emails = models.TextField(
-        help_text="Comma-separated list of email addresses to receive the report"
+        blank=True,
+        null=True,
+        help_text="Deprecated: Use recipient_user_ids or recipient_roles instead"
     )
 
     # Report content options (what to include)
@@ -1725,10 +1806,48 @@ class ReportConfiguration(TenantModel):
         return f"{self.name} ({self.get_frequency_display()}) - {self.organization.name if self.organization else 'No Org'}"
 
     def get_recipient_list(self):
-        """Return list of recipient email addresses"""
-        if not self.recipient_emails:
+        """Return list of recipient email addresses based on recipient_type"""
+        emails = []
+
+        if self.recipient_type == 'SPECIFIC_USERS' and self.recipient_user_ids:
+            # Get emails from specific user IDs
+            user_ids = [uid.strip() for uid in self.recipient_user_ids.split(',') if uid.strip()]
+            from core.models import User
+            users = User.objects.filter(
+                id__in=user_ids,
+                organization=self.organization,
+                is_active=True
+            )
+            emails = [user.email for user in users if user.email]
+
+        elif self.recipient_type == 'BY_ROLE' and self.recipient_roles:
+            # Get emails from users with specified roles
+            roles = [role.strip() for role in self.recipient_roles.split(',') if role.strip()]
+            from core.models import User
+            users = User.objects.filter(
+                organization=self.organization,
+                role__in=roles,
+                is_active=True
+            )
+            emails = [user.email for user in users if user.email]
+
+        # Fallback to legacy recipient_emails if new fields are empty
+        if not emails and self.recipient_emails:
+            emails = [email.strip() for email in self.recipient_emails.split(',') if email.strip()]
+
+        return emails
+
+    def get_recipient_roles_list(self):
+        """Return list of recipient roles"""
+        if not self.recipient_roles:
             return []
-        return [email.strip() for email in self.recipient_emails.split(',') if email.strip()]
+        return [role.strip() for role in self.recipient_roles.split(',') if role.strip()]
+
+    def get_recipient_user_ids_list(self):
+        """Return list of recipient user IDs"""
+        if not self.recipient_user_ids:
+            return []
+        return [uid.strip() for uid in self.recipient_user_ids.split(',') if uid.strip()]
 
     def get_period_dates(self):
         """Calculate start and end dates based on report_period"""
@@ -1887,6 +2006,58 @@ class PlatformSettings(models.Model):
     )
 
     # ==========================================================================
+    # Email Provider Settings (for scalable email delivery)
+    # ==========================================================================
+    EMAIL_PROVIDER_CHOICES = [
+        ('SMTP', 'SMTP (Gmail, Custom)'),
+        ('SENDGRID', 'SendGrid'),
+        ('SES', 'Amazon SES'),
+    ]
+
+    email_provider = models.CharField(
+        max_length=20,
+        choices=EMAIL_PROVIDER_CHOICES,
+        default='SMTP',
+        help_text="Email service provider to use"
+    )
+
+    # SendGrid Settings
+    sendgrid_api_key_encrypted = models.TextField(
+        blank=True,
+        default='',
+        help_text="SendGrid API Key (encrypted)"
+    )
+
+    # Amazon SES Settings
+    aws_access_key_id = models.CharField(
+        max_length=128,
+        blank=True,
+        default='',
+        help_text="AWS Access Key ID for SES"
+    )
+    aws_secret_access_key_encrypted = models.TextField(
+        blank=True,
+        default='',
+        help_text="AWS Secret Access Key (encrypted)"
+    )
+    aws_region = models.CharField(
+        max_length=32,
+        blank=True,
+        default='us-east-1',
+        help_text="AWS Region for SES (e.g., us-east-1, ap-south-1)"
+    )
+
+    # Email Rate Limiting Settings
+    email_daily_limit_per_org = models.PositiveIntegerField(
+        default=500,
+        help_text="Maximum emails per organization per day (0 = unlimited)"
+    )
+    email_daily_limit_platform = models.PositiveIntegerField(
+        default=10000,
+        help_text="Maximum total emails platform-wide per day (0 = unlimited)"
+    )
+
+    # ==========================================================================
     # Google API Quota Settings (Platform-wide limits)
     # ==========================================================================
     google_tasks_daily_quota = models.PositiveIntegerField(
@@ -2004,6 +2175,178 @@ class PlatformSettings(models.Model):
     def has_smtp_password(self):
         """Check if SMTP password is set (without decrypting)"""
         return bool(self.smtp_password_encrypted)
+
+    # SendGrid API Key encryption/decryption
+    @property
+    def sendgrid_api_key(self):
+        """Decrypt and return SendGrid API key"""
+        if not self.sendgrid_api_key_encrypted:
+            return ''
+        try:
+            fernet = self._get_fernet()
+            return fernet.decrypt(self.sendgrid_api_key_encrypted.encode()).decode()
+        except Exception:
+            return ''
+
+    @sendgrid_api_key.setter
+    def sendgrid_api_key(self, value):
+        """Encrypt and store SendGrid API key"""
+        if not value:
+            self.sendgrid_api_key_encrypted = ''
+            return
+        try:
+            fernet = self._get_fernet()
+            self.sendgrid_api_key_encrypted = fernet.encrypt(value.encode()).decode()
+        except Exception as e:
+            raise ValueError(f"Failed to encrypt SendGrid API key: {str(e)}")
+
+    def has_sendgrid_api_key(self):
+        """Check if SendGrid API key is set"""
+        return bool(self.sendgrid_api_key_encrypted)
+
+    # AWS Secret Access Key encryption/decryption
+    @property
+    def aws_secret_access_key(self):
+        """Decrypt and return AWS Secret Access Key"""
+        if not self.aws_secret_access_key_encrypted:
+            return ''
+        try:
+            fernet = self._get_fernet()
+            return fernet.decrypt(self.aws_secret_access_key_encrypted.encode()).decode()
+        except Exception:
+            return ''
+
+    @aws_secret_access_key.setter
+    def aws_secret_access_key(self, value):
+        """Encrypt and store AWS Secret Access Key"""
+        if not value:
+            self.aws_secret_access_key_encrypted = ''
+            return
+        try:
+            fernet = self._get_fernet()
+            self.aws_secret_access_key_encrypted = fernet.encrypt(value.encode()).decode()
+        except Exception as e:
+            raise ValueError(f"Failed to encrypt AWS Secret Access Key: {str(e)}")
+
+    def has_aws_secret_access_key(self):
+        """Check if AWS Secret Access Key is set"""
+        return bool(self.aws_secret_access_key_encrypted)
+
+
+# =============================================================================
+# EMAIL USAGE LOG (for tracking and rate limiting)
+# =============================================================================
+
+class EmailUsageLog(models.Model):
+    """
+    Tracks email sending for rate limiting and usage monitoring.
+    Each record represents emails sent by an organization on a specific date.
+    """
+    organization = models.ForeignKey(
+        'Organization',
+        on_delete=models.CASCADE,
+        related_name='email_usage_logs',
+        null=True,  # Null for platform-level emails
+        blank=True
+    )
+    date = models.DateField(
+        help_text="The date for this usage record"
+    )
+    email_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of emails sent"
+    )
+    last_email_at = models.DateTimeField(
+        auto_now=True,
+        help_text="Timestamp of the last email sent"
+    )
+
+    class Meta:
+        db_table = 'email_usage_logs'
+        unique_together = ['organization', 'date']
+        indexes = [
+            models.Index(fields=['date']),
+            models.Index(fields=['organization', 'date']),
+        ]
+
+    def __str__(self):
+        org_name = self.organization.name if self.organization else 'Platform'
+        return f"{org_name} - {self.date}: {self.email_count} emails"
+
+    @classmethod
+    def increment_count(cls, organization=None):
+        """
+        Increment email count for an organization (or platform if None).
+        Returns (success: bool, error_message: str or None)
+        """
+        from django.utils import timezone
+        from django.db import transaction
+
+        today = timezone.now().date()
+
+        # Get platform settings for limits
+        platform_settings = PlatformSettings.get_settings()
+
+        with transaction.atomic():
+            # Get or create today's usage record
+            usage, created = cls.objects.select_for_update().get_or_create(
+                organization=organization,
+                date=today,
+                defaults={'email_count': 0}
+            )
+
+            # Check organization limit (if organization is specified)
+            if organization and platform_settings.email_daily_limit_per_org > 0:
+                if usage.email_count >= platform_settings.email_daily_limit_per_org:
+                    return False, f"Daily email limit ({platform_settings.email_daily_limit_per_org}) reached for this organization"
+
+            # Check platform-wide limit
+            if platform_settings.email_daily_limit_platform > 0:
+                total_today = cls.objects.filter(date=today).aggregate(
+                    total=models.Sum('email_count')
+                )['total'] or 0
+                if total_today >= platform_settings.email_daily_limit_platform:
+                    return False, f"Platform daily email limit ({platform_settings.email_daily_limit_platform}) reached"
+
+            # Increment count
+            usage.email_count += 1
+            usage.save()
+
+        return True, None
+
+    @classmethod
+    def get_usage_stats(cls, organization=None, days=30):
+        """Get email usage statistics for the last N days"""
+        from django.utils import timezone
+        from django.db.models import Sum
+        from datetime import timedelta
+
+        today = timezone.now().date()
+        start_date = today - timedelta(days=days)
+
+        queryset = cls.objects.filter(date__gte=start_date)
+        if organization:
+            queryset = queryset.filter(organization=organization)
+
+        # Daily breakdown
+        daily_stats = list(queryset.values('date').annotate(
+            total=Sum('email_count')
+        ).order_by('date'))
+
+        # Total for period
+        total = queryset.aggregate(total=Sum('email_count'))['total'] or 0
+
+        # Today's count
+        today_count = queryset.filter(date=today).aggregate(
+            total=Sum('email_count')
+        )['total'] or 0
+
+        return {
+            'total': total,
+            'today': today_count,
+            'daily': daily_stats,
+            'days': days,
+        }
 
 
 # =============================================================================

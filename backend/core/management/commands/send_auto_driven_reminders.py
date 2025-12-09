@@ -232,40 +232,89 @@ class Command(BaseCommand):
         Send an auto-driven reminder email to the client.
         Returns (success: bool, error: str or None)
         """
+        from core.models import EmailTemplate
+
         try:
             client = task.client_work.client
             work_type = task.client_work.work_type
             organization = task.organization
+            recipient_type = reminder.recipient_type or 'CLIENT'
 
             # Prepare email content
             days_until_due = (task.due_date - date.today()).days
+            is_overdue = days_until_due < 0
+            organization_name = organization.firm_name if organization else 'Your CA Firm'
 
-            subject = f"Reminder: {work_type.work_name} - Documents Required - {client.client_name}"
+            # Check for custom email template
+            email_template = None
+            try:
+                email_template = EmailTemplate.objects.filter(
+                    work_type=work_type,
+                    template_type=recipient_type,
+                    is_active=True
+                ).first()
+            except Exception:
+                pass
 
-            body = f"""
-Dear {client.client_name},
+            if email_template:
+                # Build context for template rendering
+                context = {
+                    'client_name': client.client_name,
+                    'PAN': client.PAN or 'N/A',
+                    'GSTIN': client.GSTIN or 'N/A',
+                    'period_label': task.period_label,
+                    'due_date': task.due_date.strftime('%d-%b-%Y'),
+                    'work_name': work_type.work_name,
+                    'statutory_form': work_type.statutory_form or '',
+                    'firm_name': organization_name,
+                }
+                subject = EmailService.render_template(email_template.subject_template, context)
+                body = EmailService.render_template(email_template.body_template, context)
+            else:
+                # Use default template
+                subject = f"Reminder: {work_type.work_name} - Documents Required - {client.client_name}"
+
+                body = f"""Dear {client.client_name},
 
 This is a reminder regarding {work_type.work_name} for the period {task.period_label}.
 
 We kindly request you to submit the required documents at your earliest convenience.
 
-Due Date: {task.due_date.strftime('%d %b %Y')}
-Days Remaining: {days_until_due} day(s)
+{'⚠️ This task is now OVERDUE. Please submit the documents immediately.' if is_overdue else f'Days Remaining: {days_until_due} day(s)'}
 
 Please ensure all necessary documents are submitted before the due date to avoid any delays or penalties.
 
 If you have already submitted the documents, please inform us so we can update our records.
 
 Best Regards,
-{organization.firm_name if organization else 'Your CA Firm'}
-"""
+{organization_name}"""
 
-            # Use the email service to send (uses organization's email account)
+            # Prepare task details for the HTML template
+            task_details = {
+                'work_name': work_type.work_name,
+                'period_label': task.period_label,
+                'due_date': task.due_date.strftime('%d-%b-%Y'),
+                'status': task.get_status_display(),
+                'client_name': client.client_name if recipient_type == 'EMPLOYEE' else None,
+            }
+
+            # Build professional HTML email
+            html_body = EmailService.build_professional_html_email(
+                subject=subject,
+                body_content=body,
+                recipient_type=recipient_type,
+                organization_name=organization_name,
+                task_details=task_details,
+                is_overdue=is_overdue
+            )
+
+            # Use the email service to send with HTML (uses organization's email account)
             success, error = EmailService.send_email_for_organization(
                 organization=organization,
                 to_email=reminder.email_to,
                 subject=subject,
                 body=body,
+                html_body=html_body,
                 work_type=work_type
             )
 

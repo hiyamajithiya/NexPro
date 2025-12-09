@@ -175,24 +175,24 @@ export default function HelpGuide() {
     },
     {
       label: 'Configure Email Accounts',
-      description: 'Navigate to Settings > Email Accounts tab to add email addresses for sending reminders. You can configure multiple emails for different task categories (e.g., GST, Income Tax).',
-      note: 'For Gmail, enable "App Passwords" in your Google account settings.',
+      description: 'Navigate to Settings > Email Accounts tab to add email addresses for sending reminders. Choose from Platform SMTP (default), Custom SMTP, or inherit settings from another account.',
+      note: 'For Gmail custom SMTP, enable "App Passwords" in your Google account settings. Platform SMTP uses administrator-configured settings.',
     },
     {
       label: 'Add Task Categories',
-      description: 'Go to Task Categories to define the services your firm offers (e.g., GST Return, TDS Filing, Audit). Set frequencies, deadlines, and link email accounts.',
+      description: 'Go to Task Categories to define the services your firm offers (e.g., GST Return, TDS Filing, Audit). Set frequencies (Monthly, Quarterly, Yearly, One-Time), deadlines, and link email accounts.',
     },
     {
       label: 'Add Your Team',
-      description: 'Use Employees section to add staff members. Assign roles (Admin, Partner, Manager, Staff) which control their access levels.',
+      description: 'Use Employees section to add staff members. Assign roles (Admin, Partner, Manager, Staff) which control their access levels. Assign task categories to each employee.',
     },
     {
       label: 'Add Clients',
-      description: 'Start adding clients with their details. You can assign task categories to each client which will automatically generate tasks.',
+      description: 'Start adding clients with their details. When you assign task categories, tasks are automatically generated till the end of the current financial year (March 31st).',
     },
     {
       label: 'Create Email Templates',
-      description: 'Set up email templates for reminders with placeholders like {{client_name}}, {{due_date}}, etc.',
+      description: 'Set up email templates for client and employee reminders with placeholders like {{client_name}}, {{due_date}}, {{work_name}}, {{period_label}}, {{firm_name}}, etc.',
     },
   ];
 
@@ -204,12 +204,12 @@ export default function HelpGuide() {
     },
     {
       label: 'Assign Task Categories',
-      description: 'After creating a client, assign relevant task categories. Each category will generate recurring tasks based on its frequency.',
-      note: 'Tasks are automatically generated based on task category frequency (Monthly, Quarterly, Yearly).',
+      description: 'After creating a client, assign relevant task categories. Tasks are automatically generated for all periods till the end of the current financial year (March 31st).',
+      note: 'Tasks start as NOT_STARTED and automatically change to IN_PROGRESS when their reminder period begins.',
     },
     {
-      label: 'Manage Client Documents',
-      description: 'Upload and organize client documents. Use the document management section to keep track of received files.',
+      label: 'Store Client Credentials',
+      description: 'Use Credential Vault to securely store login credentials for government portals (GST, Income Tax, TDS, etc.). Passwords are encrypted and can be revealed/copied when needed.',
     },
     {
       label: 'Track Client Communication',
@@ -221,12 +221,17 @@ export default function HelpGuide() {
   const taskManagementSteps = [
     {
       label: 'View Your Tasks',
-      description: 'The Tasks page shows all work instances. Use filters to view by status (Pending, In Progress, Completed), task category, or assigned employee.',
+      description: 'The Tasks page shows all work instances. Use filters to view by status (Not Started, In Progress, Completed), task category, client, or assigned employee.',
+    },
+    {
+      label: 'Understand Task States',
+      description: 'Tasks have 3 states: NOT_STARTED (created but not yet active), IN_PROGRESS (active and reminders are being sent), and COMPLETED (work finished).',
+      note: 'Tasks automatically move to IN_PROGRESS when their reminder start day is reached.',
     },
     {
       label: 'Update Task Status',
-      description: 'Click on a task to update its status. Add notes, mark completion percentage, and record actual completion date.',
-      note: 'Tasks approaching due date will be highlighted in yellow/red.',
+      description: 'Click on a task to update its status to COMPLETED when work is done. Add notes and record actual completion date.',
+      note: 'Overdue tasks are highlighted in red. Tasks due soon are highlighted in yellow.',
     },
     {
       label: 'Assign Tasks',
@@ -242,7 +247,7 @@ export default function HelpGuide() {
   const faqs = [
     {
       question: 'How do automatic reminders work?',
-      answer: 'Automatic reminders are sent based on reminder rules defined in Task Categories. You can set reminders for X days before due date, on due date, and after due date. The system runs a scheduled job to send these emails automatically.',
+      answer: 'Automatic reminders are sent based on reminder rules defined in Task Categories. Tasks must be in IN_PROGRESS status for reminders to be sent. Reminders are sent between the reminder start day and reminder end day of each task period.',
     },
     {
       question: 'What are the different user roles?',
@@ -250,35 +255,43 @@ export default function HelpGuide() {
     },
     {
       question: 'How do I configure email for sending reminders?',
-      answer: 'Go to Settings > Email Accounts tab. Add a new email account with SMTP settings. For Gmail, use smtp.gmail.com, port 587, and an App Password (not your regular password). Enable TLS.',
+      answer: 'Go to Settings > Email Accounts tab. You have 3 options: (1) Platform SMTP - uses administrator-configured settings (default), (2) Custom SMTP - configure your own SMTP server, or (3) Inherit - reuse settings from another configured email account.',
     },
     {
       question: 'Can I customize email templates?',
-      answer: 'Yes! Go to Templates section to create custom email templates. Use placeholders like {{client_name}}, {{PAN}}, {{GSTIN}}, {{due_date}}, {{work_name}}, {{period_label}}, {{firm_name}} which will be replaced with actual values.',
+      answer: 'Yes! Go to Templates section to create custom email templates. Use placeholders like {{client_name}}, {{PAN}}, {{GSTIN}}, {{due_date}}, {{work_name}}, {{period_label}}, {{firm_name}} which will be replaced with actual values. Create separate templates for client reminders and employee reminders.',
     },
     {
       question: 'How are tasks generated automatically?',
-      answer: 'When you assign a task category to a client, the system automatically generates tasks based on the category\'s frequency (Monthly/Quarterly/Yearly). Tasks are created for the current and upcoming periods.',
+      answer: 'When you assign a task category to a client, tasks are automatically generated for all periods till the end of the current financial year (March 31st). Tasks start as NOT_STARTED and automatically move to IN_PROGRESS when their reminder period begins.',
+    },
+    {
+      question: 'What is the Credential Vault?',
+      answer: 'The Credential Vault securely stores login credentials for government portals (GST, Income Tax, TDS, MCA, EPFO, ESIC, etc.). Passwords are encrypted. You can reveal passwords, copy them to clipboard, or use the Login button to copy username and open the portal directly.',
+    },
+    {
+      question: 'How do scheduled reports work?',
+      answer: 'Go to Reports > Scheduled Reports tab to configure automatic PDF reports. Set frequency (Daily/Weekly/Monthly), report content, and recipients. Recipients can be specific organization users or all users with certain roles (e.g., send daily reports to all Staff members).',
     },
     {
       question: 'What reports are available?',
-      answer: 'Reports include: Task Summary by status, Client-wise pending work, Employee workload analysis, Overdue tasks report, Monthly/Quarterly compliance status, and Email reminder logs.',
+      answer: 'Reports include: Task Summary by status, Client-wise pending work, Employee workload analysis, Task Category analysis, Overdue tasks list, and Upcoming due tasks. You can generate on-demand reports or schedule automatic PDF reports via email.',
     },
     {
       question: 'How do I upgrade my subscription plan?',
       answer: 'Go to Settings > Organization tab. You\'ll see your current plan and usage. Click "Request Upgrade" to send an upgrade request to the platform administrator who will process your request.',
     },
     {
-      question: 'Can I export data to Excel?',
-      answer: 'Yes, most tables have an Export button that downloads the data in Excel format. You can export clients, tasks, and reports.',
+      question: 'Can I export data to Excel/PDF?',
+      answer: 'Yes! On-demand reports can be exported as Excel or PDF. Scheduled reports are sent as PDF attachments via email. Most data tables also have export functionality.',
     },
     {
       question: 'How do I reset a user\'s password?',
-      answer: 'Admins can reset passwords from the Employees section. Click on the employee and use the "Reset Password" option.',
+      answer: 'Admins can reset passwords from the Employees section. Click on the employee and use the "Reset Password" option. Users can also change their own password from Settings > Security tab.',
     },
     {
       question: 'What happens when my trial expires?',
-      answer: 'After the 30-day trial, your account will be suspended. You\'ll need to upgrade to a paid plan to continue using the service. Your data will be preserved.',
+      answer: 'After the trial period, your account will be suspended. You\'ll need to upgrade to a paid plan to continue using the service. Your data will be preserved.',
     },
   ];
 
@@ -289,11 +302,14 @@ export default function HelpGuide() {
     { feature: 'View All Tasks', admin: true, partner: true, manager: true, staff: false },
     { feature: 'View Assigned Tasks', admin: true, partner: true, manager: true, staff: true },
     { feature: 'Update Task Status', admin: true, partner: true, manager: true, staff: true },
+    { feature: 'Credential Vault', admin: true, partner: true, manager: true, staff: false },
     { feature: 'View Reports', admin: true, partner: true, manager: true, staff: false },
+    { feature: 'Schedule Reports', admin: true, partner: true, manager: false, staff: false },
     { feature: 'Manage Employees', admin: true, partner: true, manager: false, staff: false },
     { feature: 'Manage Task Categories', admin: true, partner: true, manager: false, staff: false },
     { feature: 'Manage Templates', admin: true, partner: true, manager: false, staff: false },
-    { feature: 'Settings (Organization, Email, Security)', admin: true, partner: true, manager: false, staff: false },
+    { feature: 'Settings (Organization, Email)', admin: true, partner: true, manager: false, staff: false },
+    { feature: 'Personal Settings (Notifications, Password)', admin: true, partner: true, manager: true, staff: true },
   ];
 
   return (
@@ -518,13 +534,26 @@ export default function HelpGuide() {
               <FeatureCard
                 icon={<ReportsIcon />}
                 title="Reports & Analytics"
-                description="Generate insightful reports on task completion, employee performance, client status, and email delivery."
+                description="Generate on-demand reports or schedule automatic PDF reports via email. Send to specific users or all users with certain roles."
                 tips={[
-                  'Export reports to Excel',
-                  'Schedule automatic reports',
-                  'Filter by date range',
+                  'Export as Excel or PDF',
+                  'Schedule daily/weekly/monthly reports',
+                  'Send to specific users or by role',
                 ]}
                 color="primary"
+              />
+            </Grid>
+            <Grid item xs={12} md={6} lg={4}>
+              <FeatureCard
+                icon={<SecurityIcon />}
+                title="Credential Vault"
+                description="Securely store client login credentials for government portals (GST, Income Tax, TDS, MCA, etc.). Passwords are encrypted."
+                tips={[
+                  'Click Login to copy username & open portal',
+                  'Reveal passwords for 30 seconds',
+                  'Copy passwords directly to clipboard',
+                ]}
+                color="error"
               />
             </Grid>
             <Grid item xs={12} md={6} lg={4}>
@@ -547,8 +576,8 @@ export default function HelpGuide() {
                 description="All-in-one settings hub with tabs for Organization details, Email Accounts, Notifications, and Security. Manage your firm info, plan & usage, and more."
                 tips={[
                   'Organization tab: Firm details & subscription',
-                  'Email Accounts: Configure multiple SMTP accounts',
-                  'Security: Update password regularly',
+                  'Email Accounts: Platform, Custom, or Inherit SMTP',
+                  'Notifications: Email preferences for reminders',
                 ]}
                 color="warning"
               />
@@ -574,14 +603,16 @@ export default function HelpGuide() {
                   <Grid container spacing={2}>
                     {[
                       { action: 'Add New Client', path: 'Clients → Add Client button', icon: <AddIcon /> },
-                      { action: 'Create Task', path: 'Assign task category to client (auto-creates)', icon: <AssignmentIcon /> },
+                      { action: 'Create Task', path: 'Assign task category to client (auto-generates till FY end)', icon: <AssignmentIcon /> },
                       { action: 'Send Reminder', path: 'Tasks → Select task → Send Reminder', icon: <EmailIcon /> },
-                      { action: 'View Reports', path: 'Reports → Select report type', icon: <ReportsIcon /> },
+                      { action: 'View Reports', path: 'Reports → On-demand or Scheduled Reports tab', icon: <ReportsIcon /> },
+                      { action: 'Schedule Report', path: 'Reports → Scheduled Reports → Add', icon: <ReportsIcon /> },
                       { action: 'Add Employee', path: 'Employees → Add Employee', icon: <BadgeIcon /> },
-                      { action: 'Configure Email', path: 'Settings → Email Accounts tab → Add', icon: <SettingsIcon /> },
+                      { action: 'Configure Email', path: 'Settings → Email Accounts → Add/Edit', icon: <SettingsIcon /> },
                       { action: 'Create Template', path: 'Templates → Add Template', icon: <EmailIcon /> },
-                      { action: 'Update Task Status', path: 'Tasks → Click task → Update status', icon: <EditIcon /> },
-                      { action: 'Export Data', path: 'Any list → Export button', icon: <DownloadIcon /> },
+                      { action: 'Store Credentials', path: 'Credential Vault → Add Credential', icon: <SecurityIcon /> },
+                      { action: 'Update Task Status', path: 'Tasks → Click task → Mark Complete', icon: <EditIcon /> },
+                      { action: 'Export Data', path: 'Reports → Export as Excel/PDF', icon: <DownloadIcon /> },
                       { action: 'Search/Filter', path: 'Use search bar or filter dropdowns', icon: <SearchIcon /> },
                     ].map((item, idx) => (
                       <Grid item xs={12} sm={6} md={4} key={idx}>

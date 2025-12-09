@@ -20,6 +20,11 @@ import {
   Tabs,
   Tab,
   Tooltip,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  LinearProgress,
 } from '@mui/material';
 import {
   Settings,
@@ -38,6 +43,8 @@ import {
   Google,
   Info,
   ContentCopy,
+  Speed,
+  Cloud,
 } from '@mui/icons-material';
 import { platformAdminAPI } from '../../services/api';
 
@@ -84,6 +91,8 @@ export default function PlatformSettings() {
     google_client_secret: '',
     google_client_secret_set: false,
     google_oauth_enabled: false,
+    // Email Provider Settings
+    email_provider: 'SMTP',
     // SMTP Settings
     smtp_host: '',
     smtp_port: 587,
@@ -95,7 +104,21 @@ export default function PlatformSettings() {
     smtp_from_email: '',
     smtp_from_name: '',
     smtp_enabled: false,
+    // SendGrid Settings
+    sendgrid_api_key: '',
+    sendgrid_api_key_set: false,
+    // AWS SES Settings
+    aws_access_key_id: '',
+    aws_secret_access_key: '',
+    aws_secret_access_key_set: false,
+    aws_region: 'us-east-1',
+    // Rate Limiting
+    email_daily_limit_per_org: 500,
+    email_daily_limit_platform: 10000,
   });
+  const [showSendGridKey, setShowSendGridKey] = useState(false);
+  const [showAwsSecret, setShowAwsSecret] = useState(false);
+  const [emailUsage, setEmailUsage] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -104,18 +127,22 @@ export default function PlatformSettings() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch both stats and settings in parallel
-      const [statsRes, settingsRes] = await Promise.all([
+      // Fetch stats, settings, and email usage in parallel
+      const [statsRes, settingsRes, emailUsageRes] = await Promise.all([
         platformAdminAPI.getStats(),
-        platformAdminAPI.getSettings()
+        platformAdminAPI.getSettings(),
+        platformAdminAPI.getEmailUsage().catch(() => ({ data: null }))
       ]);
       setStats(statsRes.data);
       setSettings(prev => ({
         ...prev,
         ...settingsRes.data,
         smtp_password: '',
-        google_client_secret: ''
+        google_client_secret: '',
+        sendgrid_api_key: '',
+        aws_secret_access_key: ''
       }));
+      setEmailUsage(emailUsageRes.data);
     } catch (err) {
       setError('Failed to load platform data');
       console.error(err);
@@ -143,6 +170,8 @@ export default function PlatformSettings() {
         // Google OAuth Settings
         google_client_id: settings.google_client_id,
         google_oauth_enabled: settings.google_oauth_enabled,
+        // Email Provider Settings
+        email_provider: settings.email_provider,
         // SMTP Settings
         smtp_host: settings.smtp_host,
         smtp_port: settings.smtp_port,
@@ -152,6 +181,12 @@ export default function PlatformSettings() {
         smtp_from_email: settings.smtp_from_email,
         smtp_from_name: settings.smtp_from_name,
         smtp_enabled: settings.smtp_enabled,
+        // AWS SES Settings
+        aws_access_key_id: settings.aws_access_key_id,
+        aws_region: settings.aws_region,
+        // Rate Limiting
+        email_daily_limit_per_org: settings.email_daily_limit_per_org,
+        email_daily_limit_platform: settings.email_daily_limit_platform,
       };
 
       // Only include passwords/secrets if they were changed
@@ -161,13 +196,21 @@ export default function PlatformSettings() {
       if (settings.google_client_secret) {
         dataToSave.google_client_secret = settings.google_client_secret;
       }
+      if (settings.sendgrid_api_key) {
+        dataToSave.sendgrid_api_key = settings.sendgrid_api_key;
+      }
+      if (settings.aws_secret_access_key) {
+        dataToSave.aws_secret_access_key = settings.aws_secret_access_key;
+      }
 
       const response = await platformAdminAPI.updateSettings(dataToSave);
       setSettings(prev => ({
         ...prev,
         ...response.data,
         smtp_password: '',
-        google_client_secret: ''
+        google_client_secret: '',
+        sendgrid_api_key: '',
+        aws_secret_access_key: ''
       }));
       setSuccess('Platform settings saved successfully');
     } catch (err) {
@@ -648,181 +691,294 @@ export default function PlatformSettings() {
             </Grid>
           </TabPanel>
 
-          {/* SMTP Email Tab */}
+          {/* Email Configuration Tab */}
           <TabPanel value={activeTab} index={3}>
-            <Grid container spacing={4}>
-              <Grid item xs={12} md={6}>
-                <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
-                  <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Email color="primary" /> SMTP Configuration
-                  </Typography>
-                  <Chip
-                    icon={settings.smtp_enabled ? <CheckCircle /> : <ErrorIcon />}
-                    label={settings.smtp_enabled ? 'Enabled' : 'Disabled'}
-                    color={settings.smtp_enabled ? 'success' : 'default'}
-                    size="small"
-                  />
-                </Box>
-
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={settings.smtp_enabled || false}
-                      onChange={(e) => setSettings({ ...settings, smtp_enabled: e.target.checked })}
+            {/* Email Usage Stats Banner */}
+            {emailUsage && (
+              <Paper sx={{ p: 2, mb: 3, bgcolor: 'grey.50', borderRadius: 2 }}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} md={4}>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Speed color="primary" />
+                      <Typography variant="subtitle2">Today's Email Usage</Typography>
+                    </Box>
+                    <Box sx={{ mt: 1 }}>
+                      <Box display="flex" justifyContent="space-between" mb={0.5}>
+                        <Typography variant="body2">{emailUsage.today?.sent || 0} / {emailUsage.today?.limit || 'unlimited'}</Typography>
+                        <Typography variant="body2" color="text.secondary">{emailUsage.today?.percentage || 0}%</Typography>
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={Math.min(emailUsage.today?.percentage || 0, 100)}
+                        sx={{
+                          height: 8,
+                          borderRadius: 4,
+                          bgcolor: 'grey.200',
+                          '& .MuiLinearProgress-bar': {
+                            borderRadius: 4,
+                            bgcolor: emailUsage.today?.percentage > 80 ? 'error.main' : emailUsage.today?.percentage > 50 ? 'warning.main' : 'success.main',
+                          }
+                        }}
+                      />
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <Typography variant="body2" color="text.secondary">Provider</Typography>
+                    <Chip
+                      label={settings.email_provider || 'SMTP'}
+                      size="small"
                       color="primary"
-                    />
-                  }
-                  label="Enable SMTP Email Sending"
-                  sx={{ mb: 3 }}
-                />
-
-                <Grid container spacing={2} sx={{ mb: 2 }}>
-                  <Grid item xs={8}>
-                    <TextField
-                      fullWidth
-                      label="SMTP Host"
-                      placeholder="smtp.gmail.com"
-                      value={settings.smtp_host || ''}
-                      onChange={(e) => setSettings({ ...settings, smtp_host: e.target.value })}
-                      disabled={!settings.smtp_enabled}
+                      sx={{ mt: 0.5 }}
                     />
                   </Grid>
-                  <Grid item xs={4}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      label="Port"
-                      value={settings.smtp_port || 587}
-                      onChange={(e) => setSettings({ ...settings, smtp_port: parseInt(e.target.value) || 587 })}
-                      disabled={!settings.smtp_enabled}
-                    />
+                  <Grid item xs={12} md={4}>
+                    <Typography variant="body2" color="text.secondary">30-Day Total</Typography>
+                    <Typography variant="h6" fontWeight={600}>{emailUsage.period?.total_sent || 0} emails</Typography>
                   </Grid>
                 </Grid>
+              </Paper>
+            )}
 
-                <TextField
-                  fullWidth
-                  label="SMTP Username"
-                  placeholder="your-email@gmail.com"
-                  value={settings.smtp_username || ''}
-                  onChange={(e) => setSettings({ ...settings, smtp_username: e.target.value })}
-                  disabled={!settings.smtp_enabled}
-                  sx={{ mb: 2 }}
-                />
-
-                <TextField
-                  fullWidth
-                  type={showPassword ? 'text' : 'password'}
-                  label="SMTP Password"
-                  placeholder={settings.smtp_password_set ? '••••••••' : 'Enter password'}
-                  value={settings.smtp_password || ''}
-                  onChange={(e) => setSettings({ ...settings, smtp_password: e.target.value })}
-                  disabled={!settings.smtp_enabled}
-                  sx={{ mb: 2 }}
-                  helperText={settings.smtp_password_set ? 'Password is set. Leave blank to keep current password.' : 'Enter your SMTP password or app password'}
-                  InputProps={{
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton
-                          onClick={() => setShowPassword(!showPassword)}
-                          edge="end"
-                          disabled={!settings.smtp_enabled}
-                        >
-                          {showPassword ? <VisibilityOff /> : <Visibility />}
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-
-                <Box sx={{ mb: 2 }}>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={settings.smtp_use_tls || false}
-                        onChange={(e) => setSettings({
-                          ...settings,
-                          smtp_use_tls: e.target.checked,
-                          smtp_use_ssl: e.target.checked ? false : settings.smtp_use_ssl
-                        })}
-                        disabled={!settings.smtp_enabled}
-                        size="small"
-                      />
-                    }
-                    label="Use TLS (Port 587)"
-                  />
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={settings.smtp_use_ssl || false}
-                        onChange={(e) => setSettings({
-                          ...settings,
-                          smtp_use_ssl: e.target.checked,
-                          smtp_use_tls: e.target.checked ? false : settings.smtp_use_tls
-                        })}
-                        disabled={!settings.smtp_enabled}
-                        size="small"
-                      />
-                    }
-                    label="Use SSL (Port 465)"
-                  />
-                </Box>
+            <Grid container spacing={4}>
+              {/* Email Provider Selection */}
+              <Grid item xs={12}>
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Cloud color="primary" /> Email Provider
+                </Typography>
+                <FormControl sx={{ minWidth: 300, mb: 2 }}>
+                  <InputLabel>Email Provider</InputLabel>
+                  <Select
+                    value={settings.email_provider || 'SMTP'}
+                    label="Email Provider"
+                    onChange={(e) => setSettings({ ...settings, email_provider: e.target.value })}
+                  >
+                    <MenuItem value="SMTP">SMTP (Gmail, Custom Server)</MenuItem>
+                    <MenuItem value="SENDGRID">SendGrid (Recommended for Scale)</MenuItem>
+                    <MenuItem value="SES">Amazon SES (High Volume)</MenuItem>
+                  </Select>
+                </FormControl>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  {settings.email_provider === 'SMTP' && 'Gmail SMTP has a limit of 500 emails/day. Consider SendGrid or SES for higher volumes.'}
+                  {settings.email_provider === 'SENDGRID' && 'SendGrid offers 100 free emails/day, with scalable paid plans starting at $15/month for 40,000 emails.'}
+                  {settings.email_provider === 'SES' && 'Amazon SES costs ~$0.10 per 1,000 emails with no daily limits (after leaving sandbox).'}
+                </Alert>
               </Grid>
 
-              <Grid item xs={12} md={6}>
-                <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
-                  Sender Information
-                </Typography>
-                <Grid container spacing={2} sx={{ mb: 3 }}>
-                  <Grid item xs={12}>
+              {/* SMTP Configuration */}
+              {settings.email_provider === 'SMTP' && (
+                <>
+                  <Grid item xs={12} md={6}>
+                    <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+                      <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Email color="primary" /> SMTP Configuration
+                      </Typography>
+                      <Chip
+                        icon={settings.smtp_enabled ? <CheckCircle /> : <ErrorIcon />}
+                        label={settings.smtp_enabled ? 'Enabled' : 'Disabled'}
+                        color={settings.smtp_enabled ? 'success' : 'default'}
+                        size="small"
+                      />
+                    </Box>
+
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={settings.smtp_enabled || false}
+                          onChange={(e) => setSettings({ ...settings, smtp_enabled: e.target.checked })}
+                          color="primary"
+                        />
+                      }
+                      label="Enable SMTP Email Sending"
+                      sx={{ mb: 3 }}
+                    />
+
+                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                      <Grid item xs={8}>
+                        <TextField
+                          fullWidth
+                          label="SMTP Host"
+                          placeholder="smtp.gmail.com"
+                          value={settings.smtp_host || ''}
+                          onChange={(e) => setSettings({ ...settings, smtp_host: e.target.value })}
+                          disabled={!settings.smtp_enabled}
+                        />
+                      </Grid>
+                      <Grid item xs={4}>
+                        <TextField
+                          fullWidth
+                          type="number"
+                          label="Port"
+                          value={settings.smtp_port || 587}
+                          onChange={(e) => setSettings({ ...settings, smtp_port: parseInt(e.target.value) || 587 })}
+                          disabled={!settings.smtp_enabled}
+                        />
+                      </Grid>
+                    </Grid>
+
                     <TextField
                       fullWidth
-                      label="From Email"
-                      placeholder="noreply@yourdomain.com"
-                      value={settings.smtp_from_email || ''}
-                      onChange={(e) => setSettings({ ...settings, smtp_from_email: e.target.value })}
+                      label="SMTP Username"
+                      placeholder="your-email@gmail.com"
+                      value={settings.smtp_username || ''}
+                      onChange={(e) => setSettings({ ...settings, smtp_username: e.target.value })}
                       disabled={!settings.smtp_enabled}
+                      sx={{ mb: 2 }}
                     />
-                  </Grid>
-                  <Grid item xs={12}>
+
                     <TextField
                       fullWidth
-                      label="From Name"
-                      placeholder="NexPro Platform"
-                      value={settings.smtp_from_name || ''}
-                      onChange={(e) => setSettings({ ...settings, smtp_from_name: e.target.value })}
+                      type={showPassword ? 'text' : 'password'}
+                      label="SMTP Password"
+                      placeholder={settings.smtp_password_set ? '••••••••' : 'Enter password'}
+                      value={settings.smtp_password || ''}
+                      onChange={(e) => setSettings({ ...settings, smtp_password: e.target.value })}
                       disabled={!settings.smtp_enabled}
+                      sx={{ mb: 2 }}
+                      helperText={settings.smtp_password_set ? 'Password is set. Leave blank to keep current.' : 'Enter your SMTP password or app password'}
+                      InputProps={{
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton onClick={() => setShowPassword(!showPassword)} edge="end" disabled={!settings.smtp_enabled}>
+                              {showPassword ? <VisibilityOff /> : <Visibility />}
+                            </IconButton>
+                          </InputAdornment>
+                        ),
+                      }}
                     />
+
+                    <Box sx={{ mb: 2 }}>
+                      <FormControlLabel
+                        control={<Switch checked={settings.smtp_use_tls || false} onChange={(e) => setSettings({ ...settings, smtp_use_tls: e.target.checked, smtp_use_ssl: e.target.checked ? false : settings.smtp_use_ssl })} disabled={!settings.smtp_enabled} size="small" />}
+                        label="Use TLS (Port 587)"
+                      />
+                      <FormControlLabel
+                        control={<Switch checked={settings.smtp_use_ssl || false} onChange={(e) => setSettings({ ...settings, smtp_use_ssl: e.target.checked, smtp_use_tls: e.target.checked ? false : settings.smtp_use_tls })} disabled={!settings.smtp_enabled} size="small" />}
+                        label="Use SSL (Port 465)"
+                      />
+                    </Box>
                   </Grid>
-                </Grid>
 
-                <Divider sx={{ my: 3 }} />
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>Sender Information</Typography>
+                    <TextField fullWidth label="From Email" placeholder="noreply@yourdomain.com" value={settings.smtp_from_email || ''} onChange={(e) => setSettings({ ...settings, smtp_from_email: e.target.value })} disabled={!settings.smtp_enabled} sx={{ mb: 2 }} />
+                    <TextField fullWidth label="From Name" placeholder="NexPro Platform" value={settings.smtp_from_name || ''} onChange={(e) => setSettings({ ...settings, smtp_from_name: e.target.value })} disabled={!settings.smtp_enabled} sx={{ mb: 3 }} />
 
-                <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
-                  Test Email Configuration
-                </Typography>
-                <Box display="flex" gap={1} sx={{ mb: 1 }}>
+                    <Divider sx={{ my: 2 }} />
+
+                    <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>Test Email</Typography>
+                    <Box display="flex" gap={1}>
+                      <TextField fullWidth label="Test Recipient" placeholder="test@example.com" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} disabled={!settings.smtp_enabled || testing} size="small" />
+                      <Button variant="contained" startIcon={testing ? <CircularProgress size={16} /> : <Send />} onClick={handleTestEmail} disabled={!settings.smtp_enabled || testing || !testEmail} sx={{ minWidth: 120 }}>
+                        {testing ? 'Sending...' : 'Send'}
+                      </Button>
+                    </Box>
+                  </Grid>
+                </>
+              )}
+
+              {/* SendGrid Configuration */}
+              {settings.email_provider === 'SENDGRID' && (
+                <Grid item xs={12} md={6}>
+                  <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Email color="primary" /> SendGrid Configuration
+                  </Typography>
+
                   <TextField
                     fullWidth
-                    label="Test Recipient Email"
-                    placeholder="test@example.com"
-                    value={testEmail}
-                    onChange={(e) => setTestEmail(e.target.value)}
-                    disabled={!settings.smtp_enabled || testing}
-                    size="small"
+                    type={showSendGridKey ? 'text' : 'password'}
+                    label="SendGrid API Key"
+                    placeholder={settings.sendgrid_api_key_set ? '••••••••' : 'SG.xxxxx'}
+                    value={settings.sendgrid_api_key || ''}
+                    onChange={(e) => setSettings({ ...settings, sendgrid_api_key: e.target.value })}
+                    sx={{ mb: 2 }}
+                    helperText={settings.sendgrid_api_key_set ? 'API key is set. Leave blank to keep current.' : 'Get your API key from SendGrid dashboard'}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton onClick={() => setShowSendGridKey(!showSendGridKey)} edge="end">
+                            {showSendGridKey ? <VisibilityOff /> : <Visibility />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
                   />
-                  <Button
-                    variant="contained"
-                    startIcon={testing ? <CircularProgress size={16} /> : <Send />}
-                    onClick={handleTestEmail}
-                    disabled={!settings.smtp_enabled || testing || !testEmail}
-                    sx={{ minWidth: 130 }}
-                  >
-                    {testing ? 'Sending...' : 'Send Test'}
-                  </Button>
-                </Box>
-                <Typography variant="caption" color="text.secondary">
-                  Save settings first, then send a test email to verify configuration
+
+                  <TextField fullWidth label="From Email" placeholder="noreply@yourdomain.com" value={settings.smtp_from_email || ''} onChange={(e) => setSettings({ ...settings, smtp_from_email: e.target.value })} sx={{ mb: 2 }} helperText="Must be a verified sender in SendGrid" />
+                  <TextField fullWidth label="From Name" placeholder="NexPro Platform" value={settings.smtp_from_name || ''} onChange={(e) => setSettings({ ...settings, smtp_from_name: e.target.value })} />
+                </Grid>
+              )}
+
+              {/* Amazon SES Configuration */}
+              {settings.email_provider === 'SES' && (
+                <Grid item xs={12} md={6}>
+                  <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Email color="primary" /> Amazon SES Configuration
+                  </Typography>
+
+                  <TextField fullWidth label="AWS Access Key ID" placeholder="AKIA..." value={settings.aws_access_key_id || ''} onChange={(e) => setSettings({ ...settings, aws_access_key_id: e.target.value })} sx={{ mb: 2 }} />
+
+                  <TextField
+                    fullWidth
+                    type={showAwsSecret ? 'text' : 'password'}
+                    label="AWS Secret Access Key"
+                    placeholder={settings.aws_secret_access_key_set ? '••••••••' : 'Enter secret key'}
+                    value={settings.aws_secret_access_key || ''}
+                    onChange={(e) => setSettings({ ...settings, aws_secret_access_key: e.target.value })}
+                    sx={{ mb: 2 }}
+                    helperText={settings.aws_secret_access_key_set ? 'Secret key is set. Leave blank to keep current.' : ''}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton onClick={() => setShowAwsSecret(!showAwsSecret)} edge="end">
+                            {showAwsSecret ? <VisibilityOff /> : <Visibility />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+
+                  <FormControl fullWidth sx={{ mb: 2 }}>
+                    <InputLabel>AWS Region</InputLabel>
+                    <Select value={settings.aws_region || 'us-east-1'} label="AWS Region" onChange={(e) => setSettings({ ...settings, aws_region: e.target.value })}>
+                      <MenuItem value="us-east-1">US East (N. Virginia)</MenuItem>
+                      <MenuItem value="us-west-2">US West (Oregon)</MenuItem>
+                      <MenuItem value="eu-west-1">EU (Ireland)</MenuItem>
+                      <MenuItem value="ap-south-1">Asia Pacific (Mumbai)</MenuItem>
+                      <MenuItem value="ap-southeast-1">Asia Pacific (Singapore)</MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  <TextField fullWidth label="From Email" placeholder="noreply@yourdomain.com" value={settings.smtp_from_email || ''} onChange={(e) => setSettings({ ...settings, smtp_from_email: e.target.value })} sx={{ mb: 2 }} helperText="Must be a verified identity in SES" />
+                  <TextField fullWidth label="From Name" placeholder="NexPro Platform" value={settings.smtp_from_name || ''} onChange={(e) => setSettings({ ...settings, smtp_from_name: e.target.value })} />
+                </Grid>
+              )}
+
+              {/* Rate Limiting Settings */}
+              <Grid item xs={12} md={6}>
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Speed color="primary" /> Rate Limiting
                 </Typography>
+
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Daily Limit Per Organization"
+                  value={settings.email_daily_limit_per_org || 500}
+                  onChange={(e) => setSettings({ ...settings, email_daily_limit_per_org: parseInt(e.target.value) || 0 })}
+                  sx={{ mb: 2 }}
+                  helperText="Maximum emails each organization can send per day (0 = unlimited)"
+                  inputProps={{ min: 0 }}
+                />
+
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Daily Limit Platform-Wide"
+                  value={settings.email_daily_limit_platform || 10000}
+                  onChange={(e) => setSettings({ ...settings, email_daily_limit_platform: parseInt(e.target.value) || 0 })}
+                  helperText="Maximum total emails across all organizations per day (0 = unlimited)"
+                  inputProps={{ min: 0 }}
+                />
               </Grid>
             </Grid>
           </TabPanel>

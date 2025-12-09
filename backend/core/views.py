@@ -840,7 +840,7 @@ class UserViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         else:
             serializer.save()
 
-    @action(detail=False, methods=['get', 'put'])
+    @action(detail=False, methods=['get', 'put'], permission_classes=[permissions.IsAuthenticated])
     def profile(self, request):
         """Get or update current user's profile"""
         user = request.user
@@ -855,7 +855,7 @@ class UserViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             serializer.save()
             return Response(serializer.data)
 
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def change_password(self, request):
         """Change current user's password"""
         user = request.user
@@ -884,7 +884,7 @@ class UserViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
         user.save()
         return Response({'message': 'Password changed successfully'})
 
-    @action(detail=False, methods=['get', 'put'])
+    @action(detail=False, methods=['get', 'put'], permission_classes=[permissions.IsAuthenticated])
     def notification_preferences(self, request):
         """Get or update current user's notification preferences"""
         user = request.user
@@ -911,7 +911,7 @@ class UserViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 'notify_weekly_reports': user.notify_weekly_reports,
             })
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
     def export_my_data(self, request):
         """
         Export all personal data for the current user (DPDP Act compliance - Right to Data Portability).
@@ -2336,10 +2336,12 @@ class CredentialVaultViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
             AuditLog.objects.create(
                 organization=request.organization,
                 user=request.user,
-                action='CREDENTIAL_ACCESS',
+                user_email=request.user.email if request.user else '',
+                action='DATA_ACCESS',
+                description=f"Revealed credential password for {credential.client.client_name} - {credential.get_portal_type_display()}",
                 resource_type='CredentialVault',
                 resource_id=str(credential.id),
-                details={
+                extra_data={
                     'client_id': str(credential.client.id),
                     'client_name': credential.client.client_name,
                     'portal_type': credential.portal_type
@@ -2354,7 +2356,10 @@ class CredentialVaultViewSet(TenantViewSetMixin, viewsets.ModelViewSet):
                 'username': credential.username
             })
         except Exception as e:
-            return Response({'error': 'Failed to decrypt password'}, status=500)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to decrypt password for credential {pk}: {str(e)}")
+            return Response({'error': f'Failed to decrypt password: {str(e)}'}, status=500)
 
     @action(detail=False, methods=['get'])
     def portal_types(self, request):
@@ -3055,6 +3060,78 @@ Best regards,
                 {'error': f'Failed to send test email: {str(e)}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+    @action(detail=False, methods=['get'], url_path='email_usage')
+    def email_usage(self, request):
+        """
+        Get email usage statistics for the platform.
+        Includes daily breakdown, limits, and per-organization usage.
+        """
+        from core.models import EmailUsageLog
+        from django.db.models import Sum
+        from django.utils import timezone
+        from datetime import timedelta
+
+        days = int(request.query_params.get('days', 30))
+        platform_settings = PlatformSettings.get_settings()
+        today = timezone.now().date()
+
+        # Get overall platform usage stats
+        platform_stats = EmailUsageLog.get_usage_stats(organization=None, days=days)
+
+        # Get today's usage
+        today_usage = EmailUsageLog.objects.filter(date=today).aggregate(
+            total=Sum('email_count')
+        )['total'] or 0
+
+        # Get per-organization usage for today (top 10)
+        org_usage_today = EmailUsageLog.objects.filter(
+            date=today,
+            organization__isnull=False
+        ).select_related('organization').order_by('-email_count')[:10]
+
+        org_breakdown = [
+            {
+                'organization_id': str(log.organization.id),
+                'organization_name': log.organization.name,
+                'email_count': log.email_count,
+                'limit': platform_settings.email_daily_limit_per_org,
+                'percentage': round(
+                    (log.email_count / platform_settings.email_daily_limit_per_org * 100)
+                    if platform_settings.email_daily_limit_per_org > 0 else 0,
+                    1
+                )
+            }
+            for log in org_usage_today
+        ]
+
+        # Calculate limit usage percentage
+        platform_limit = platform_settings.email_daily_limit_platform
+        platform_percentage = round(
+            (today_usage / platform_limit * 100) if platform_limit > 0 else 0,
+            1
+        )
+
+        return Response({
+            'today': {
+                'sent': today_usage,
+                'limit': platform_limit,
+                'percentage': platform_percentage,
+                'remaining': max(0, platform_limit - today_usage) if platform_limit > 0 else 'unlimited',
+            },
+            'limits': {
+                'per_organization': platform_settings.email_daily_limit_per_org,
+                'platform_total': platform_settings.email_daily_limit_platform,
+            },
+            'provider': platform_settings.email_provider,
+            'period': {
+                'days': days,
+                'total_sent': platform_stats['total'],
+                'daily_average': round(platform_stats['total'] / days, 1) if days > 0 else 0,
+                'daily': platform_stats['daily'],
+            },
+            'top_organizations_today': org_breakdown,
+        })
 
     @action(detail=True, methods=['delete'], url_path='delete_org')
     def delete_organization(self, request, pk=None):
