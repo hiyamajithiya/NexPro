@@ -238,9 +238,14 @@ class GoogleTasksService:
 
             work_instance.save()
 
-            # Update mapping
-            mapping.google_updated_at = google_updated
+            # Update mapping with current timestamps
+            mapping.google_updated_at = google_updated_dt
+            mapping.nexpro_updated_at = timezone.now()
             mapping.save()
+
+            # Update connection's last sync time
+            self.google_connection.last_sync_at = timezone.now()
+            self.google_connection.save(update_fields=['last_sync_at'])
 
             # Log the sync
             GoogleSyncLog.objects.create(

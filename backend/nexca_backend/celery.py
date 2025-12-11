@@ -24,6 +24,10 @@ app.conf.beat_schedule = {
         'task': 'core.tasks.mark_overdue_tasks',
         'schedule': crontab(hour=0, minute=30),  # Run daily at 12:30 AM
     },
+    'sync-google-tasks-every-5-minutes': {
+        'task': 'core.tasks.sync_google_tasks_to_nexpro',
+        'schedule': crontab(minute='*/5'),  # Run every 5 minutes
+    },
 }
 
 @app.task(bind=True)

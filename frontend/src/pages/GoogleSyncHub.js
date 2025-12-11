@@ -543,6 +543,33 @@ const GoogleSyncHub = () => {
               </Typography>
             </Box>
 
+            {/* Two-Way Sync Status Card */}
+            {connectionStatus.tasks_enabled && (
+              <Alert
+                severity="success"
+                icon={<SyncIcon />}
+                sx={{ mb: 2 }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  Two-Way Sync Active
+                </Typography>
+                <Typography variant="caption" component="div">
+                  • NexPro → Google: Instant sync when you assign/update tasks
+                </Typography>
+                <Typography variant="caption" component="div">
+                  • Google → NexPro: Automatic sync every 5 minutes
+                </Typography>
+                <Typography variant="caption" component="div" sx={{ mt: 0.5 }}>
+                  Last sync: {connectionStatus.last_sync_at
+                    ? new Date(connectionStatus.last_sync_at).toLocaleTimeString()
+                    : 'Never'}
+                  {connectionStatus.last_sync_at &&
+                    ` (${Math.floor((Date.now() - new Date(connectionStatus.last_sync_at)) / 60000)} min ago)`
+                  }
+                </Typography>
+              </Alert>
+            )}
+
             {/* Service Toggle Help */}
             <QuickTip>
               Toggle services ON/OFF below. Enabled services will sync your NexPro data with the corresponding Google service.

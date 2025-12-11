@@ -47,6 +47,8 @@ import {
   Pause as PauseIcon,
   Timer as TimerIcon,
   Flag as FlagIcon,
+  CloudDone as CloudDoneIcon,
+  CloudOff as CloudOffIcon,
 } from '@mui/icons-material';
 import { tasksAPI, clientsAPI, workTypesAPI, usersAPI, taskDocumentsAPI } from '../services/api';
 import { getErrorMessage } from '../utils/errorUtils';
@@ -655,6 +657,30 @@ export default function Tasks() {
               >
                 <AttachFileIcon fontSize="small" color="primary" />
               </Badge>
+            </Tooltip>
+          );
+        },
+      },
+      {
+        field: 'google_synced',
+        headerName: 'Google',
+        width: 90,
+        align: 'center',
+        headerAlign: 'center',
+        sortable: false,
+        renderCell: (params) => {
+          // Check if task is synced to Google (you can enhance this later with actual sync status from API)
+          const isSynced = params.row.assigned_to; // Tasks with assigned users might be synced
+          if (isSynced) {
+            return (
+              <Tooltip title="Synced to Google Tasks">
+                <CloudDoneIcon fontSize="small" sx={{ color: 'success.main' }} />
+              </Tooltip>
+            );
+          }
+          return (
+            <Tooltip title="Not synced">
+              <CloudOffIcon fontSize="small" sx={{ color: 'text.disabled', opacity: 0.3 }} />
             </Tooltip>
           );
         },
