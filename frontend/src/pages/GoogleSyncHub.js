@@ -167,6 +167,7 @@ const GoogleSyncHub = () => {
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const isAdmin = userData.role === 'ADMIN';
+  const isStaff = userData.role === 'STAFF';
 
   // Fetch connection status
   const fetchConnectionStatus = useCallback(async () => {
@@ -241,7 +242,7 @@ const GoogleSyncHub = () => {
         setSuccess('Authorization code received. Connecting to Google...');
 
         try {
-          await googleSyncAPI.connect(code, ['tasks', 'calendar', 'drive', 'gmail']);
+          await googleSyncAPI.connect(code, isStaff ? ['tasks', 'calendar'] : ['tasks', 'calendar', 'drive', 'gmail']);
           setSuccess('Successfully connected to Google!');
           // Refresh connection status
           await fetchConnectionStatus();
@@ -281,7 +282,11 @@ const GoogleSyncHub = () => {
   }, [connectionStatus, fetchGoogleResources]);
 
   // Connect to Google
-  const handleConnect = async (services = ['tasks', 'calendar', 'drive', 'gmail']) => {
+  const handleConnect = async (services = null) => {
+    // Default services based on role
+    if (!services) {
+      services = isStaff ? ['tasks', 'calendar'] : ['tasks', 'calendar', 'drive', 'gmail'];
+    }
     try {
       setError(null);
       setSuccess('Redirecting to Google for authorization...');
@@ -299,7 +304,7 @@ const GoogleSyncHub = () => {
   const handleAuthCodeSubmit = async () => {
     try {
       setError(null);
-      await googleSyncAPI.connect(authCode, ['tasks', 'calendar', 'drive', 'gmail']);
+      await googleSyncAPI.connect(authCode, isStaff ? ['tasks', 'calendar'] : ['tasks', 'calendar', 'drive', 'gmail']);
       setSuccess('Successfully connected to Google!');
       setAuthCode('');
       fetchConnectionStatus();
@@ -504,7 +509,7 @@ const GoogleSyncHub = () => {
 
           <Alert severity="info" sx={{ mt: 2 }}>
             <Typography variant="body2">
-              <strong>No charges!</strong> All Google APIs used (Tasks, Calendar, Drive, Gmail) are completely FREE
+              <strong>No charges!</strong> All Google APIs used ({isStaff ? 'Tasks, Calendar' : 'Tasks, Calendar, Drive, Gmail'}) are completely FREE
               with generous quotas. Your data stays secure with OAuth 2.0 authentication.
             </Typography>
           </Alert>
@@ -574,36 +579,40 @@ const GoogleSyncHub = () => {
                   </Card>
                 </Tooltip>
               </Grid>
-              <Grid item xs={6} sm={3}>
-                <Tooltip title="Auto-organize client documents in Google Drive folders." arrow>
-                  <Card variant="outlined" sx={{ cursor: 'help' }}>
-                    <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                      <DriveIcon sx={{ fontSize: 32, color: connectionStatus.drive_enabled ? '#FBBC04' : '#ccc' }} />
-                      <Typography variant="body2">Drive</Typography>
-                      <Switch
-                        checked={connectionStatus.drive_enabled}
-                        onChange={(e) => handleServiceToggle('drive_enabled', e.target.checked)}
-                        size="small"
-                      />
-                    </CardContent>
-                  </Card>
-                </Tooltip>
-              </Grid>
-              <Grid item xs={6} sm={3}>
-                <Tooltip title="Send task notifications through your Gmail account." arrow>
-                  <Card variant="outlined" sx={{ cursor: 'help' }}>
-                    <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                      <GmailIcon sx={{ fontSize: 32, color: connectionStatus.gmail_enabled ? '#EA4335' : '#ccc' }} />
-                      <Typography variant="body2">Gmail</Typography>
-                      <Switch
-                        checked={connectionStatus.gmail_enabled}
-                        onChange={(e) => handleServiceToggle('gmail_enabled', e.target.checked)}
-                        size="small"
-                      />
-                    </CardContent>
-                  </Card>
-                </Tooltip>
-              </Grid>
+              {!isStaff && (
+                <Grid item xs={6} sm={3}>
+                  <Tooltip title="Auto-organize client documents in Google Drive folders." arrow>
+                    <Card variant="outlined" sx={{ cursor: 'help' }}>
+                      <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                        <DriveIcon sx={{ fontSize: 32, color: connectionStatus.drive_enabled ? '#FBBC04' : '#ccc' }} />
+                        <Typography variant="body2">Drive</Typography>
+                        <Switch
+                          checked={connectionStatus.drive_enabled}
+                          onChange={(e) => handleServiceToggle('drive_enabled', e.target.checked)}
+                          size="small"
+                        />
+                      </CardContent>
+                    </Card>
+                  </Tooltip>
+                </Grid>
+              )}
+              {!isStaff && (
+                <Grid item xs={6} sm={3}>
+                  <Tooltip title="Send task notifications through your Gmail account." arrow>
+                    <Card variant="outlined" sx={{ cursor: 'help' }}>
+                      <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                        <GmailIcon sx={{ fontSize: 32, color: connectionStatus.gmail_enabled ? '#EA4335' : '#ccc' }} />
+                        <Typography variant="body2">Gmail</Typography>
+                        <Switch
+                          checked={connectionStatus.gmail_enabled}
+                          onChange={(e) => handleServiceToggle('gmail_enabled', e.target.checked)}
+                          size="small"
+                        />
+                      </CardContent>
+                    </Card>
+                  </Tooltip>
+                </Grid>
+              )}
             </Grid>
 
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -648,7 +657,7 @@ const GoogleSyncHub = () => {
               <>
                 <Alert severity="info" sx={{ mb: 2 }}>
                   <Typography variant="body2">
-                    Connect your Google account to sync tasks with Google Tasks, Calendar, Drive, and Gmail.
+                    Connect your Google account to sync tasks with {isStaff ? 'Google Tasks and Calendar' : 'Google Tasks, Calendar, Drive, and Gmail'}.
                     <br />
                     <strong>All APIs are FREE</strong> with generous quotas - no additional charges!
                   </Typography>
@@ -809,7 +818,7 @@ const GoogleSyncHub = () => {
               )}
 
               {/* Gmail Info */}
-              {connectionStatus.gmail_enabled && (
+              {!isStaff && connectionStatus.gmail_enabled && (
                 <Grid item xs={12} md={6}>
                   <Card variant="outlined">
                     <CardContent>
@@ -849,7 +858,7 @@ const GoogleSyncHub = () => {
               )}
 
               {/* Drive Info */}
-              {connectionStatus.drive_enabled && (
+              {!isStaff && connectionStatus.drive_enabled && (
                 <Grid item xs={12} md={6}>
                   <Card variant="outlined">
                     <CardContent>
@@ -1287,34 +1296,38 @@ const GoogleSyncHub = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ height: '100%', '&:hover': { boxShadow: 4 }, transition: 'box-shadow 0.3s' }}>
-            <CardContent>
-              <DriveIcon sx={{ fontSize: 40, color: '#FBBC04', mb: 1 }} />
-              <Typography variant="subtitle1" fontWeight="bold">
-                Google Drive
-              </Typography>
-              <Typography variant="body2" color="text.secondary" paragraph>
-                Auto-organized client folders. Documents and reports sync automatically.
-              </Typography>
-              <Chip size="small" label="Auto-Organize" color="warning" variant="outlined" />
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ height: '100%', '&:hover': { boxShadow: 4 }, transition: 'box-shadow 0.3s' }}>
-            <CardContent>
-              <GmailIcon sx={{ fontSize: 40, color: '#EA4335', mb: 1 }} />
-              <Typography variant="subtitle1" fontWeight="bold">
-                Gmail
-              </Typography>
-              <Typography variant="body2" color="text.secondary" paragraph>
-                Send task notifications through Gmail. Create tasks from starred emails.
-              </Typography>
-              <Chip size="small" label="Email Tasks" color="error" variant="outlined" />
-            </CardContent>
-          </Card>
-        </Grid>
+        {!isStaff && (
+          <Grid item xs={12} sm={6} md={3}>
+            <Card sx={{ height: '100%', '&:hover': { boxShadow: 4 }, transition: 'box-shadow 0.3s' }}>
+              <CardContent>
+                <DriveIcon sx={{ fontSize: 40, color: '#FBBC04', mb: 1 }} />
+                <Typography variant="subtitle1" fontWeight="bold">
+                  Google Drive
+                </Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Auto-organized client folders. Documents and reports sync automatically.
+                </Typography>
+                <Chip size="small" label="Auto-Organize" color="warning" variant="outlined" />
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+        {!isStaff && (
+          <Grid item xs={12} sm={6} md={3}>
+            <Card sx={{ height: '100%', '&:hover': { boxShadow: 4 }, transition: 'box-shadow 0.3s' }}>
+              <CardContent>
+                <GmailIcon sx={{ fontSize: 40, color: '#EA4335', mb: 1 }} />
+                <Typography variant="subtitle1" fontWeight="bold">
+                  Gmail
+                </Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Send task notifications through Gmail. Create tasks from starred emails.
+                </Typography>
+                <Chip size="small" label="Email Tasks" color="error" variant="outlined" />
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
       </Grid>
 
       {/* Admin Settings Dialog */}
