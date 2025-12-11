@@ -76,13 +76,13 @@ const StatCard = ({ title, value, icon, gradient, onClick, subtitle }) => (
   </Card>
 );
 
-const getStatusChip = (status) => {
+const getStatusChip = (status, isOverdue = false) => {
   const statusColors = {
     'NOT_STARTED': 'default',
     'STARTED': 'info',
     'IN_PROGRESS': 'warning',
     'COMPLETED': 'success',
-    'OVERDUE': 'error',
+    'PAUSED': 'warning',
   };
 
   const statusLabels = {
@@ -90,13 +90,16 @@ const getStatusChip = (status) => {
     'STARTED': 'Started',
     'IN_PROGRESS': 'In Progress',
     'COMPLETED': 'Completed',
-    'OVERDUE': 'Overdue',
+    'PAUSED': 'Paused',
   };
+
+  // If task is overdue, show error color regardless of status
+  const color = isOverdue ? 'error' : (statusColors[status] || 'default');
 
   return (
     <Chip
       label={statusLabels[status] || status}
-      color={statusColors[status] || 'default'}
+      color={color}
       size="small"
     />
   );
@@ -354,9 +357,14 @@ export default function Dashboard() {
                         <TableCell>{task.work_type_name}</TableCell>
                         <TableCell>{task.period_label}</TableCell>
                         <TableCell>
-                          {format(new Date(task.due_date), 'dd-MMM-yyyy')}
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            {task.is_overdue && <WarningIcon sx={{ color: 'error.main', fontSize: 18 }} />}
+                            <span style={{ color: task.is_overdue ? '#d32f2f' : 'inherit', fontWeight: task.is_overdue ? 600 : 400 }}>
+                              {format(new Date(task.due_date), 'dd-MMM-yyyy')}
+                            </span>
+                          </Box>
                         </TableCell>
-                        <TableCell>{getStatusChip(task.status)}</TableCell>
+                        <TableCell>{getStatusChip(task.status, task.is_overdue)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

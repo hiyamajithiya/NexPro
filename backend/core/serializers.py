@@ -443,6 +443,9 @@ class WorkInstanceSerializer(TenantModelSerializer):
     # Document count for attachment indicator
     document_count = serializers.SerializerMethodField()
 
+    # Overdue status computed field
+    is_overdue = serializers.ReadOnlyField()
+
     class Meta:
         model = WorkInstance
         fields = '__all__'
@@ -451,6 +454,7 @@ class WorkInstanceSerializer(TenantModelSerializer):
             # Make client_work not required for updates (it's only set on create)
             'client_work': {'required': False},
             'period_label': {'required': False},
+            'due_date': {'required': False},  # Allow status updates without re-providing due_date
         }
 
     def get_current_time_spent(self, obj):
@@ -464,6 +468,23 @@ class WorkInstanceSerializer(TenantModelSerializer):
     def get_document_count(self, obj):
         """Get the count of documents attached to this work instance"""
         return obj.documents.count()
+
+    def validate(self, data):
+        """Validate work instance data"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Log the incoming data for debugging
+        logger.info(f"WorkInstanceSerializer validate called with data: {data}")
+
+        # If updating, client_work should not be changed
+        if self.instance and 'client_work' in data and data['client_work'] != self.instance.client_work:
+            logger.warning("Attempt to change client_work on update")
+            raise serializers.ValidationError({
+                'client_work': 'Cannot change client_work on an existing work instance.'
+            })
+
+        return data
 
 
 class EmailTemplateSerializer(TenantModelSerializer):

@@ -955,7 +955,6 @@ class WorkInstance(TenantModel):
         ('STARTED', 'Started'),
         ('PAUSED', 'Paused'),
         ('COMPLETED', 'Completed'),
-        ('OVERDUE', 'Overdue'),
     ]
 
     client_work = models.ForeignKey(ClientWorkMapping, on_delete=models.CASCADE, related_name='instances')
@@ -1044,6 +1043,15 @@ class WorkInstance(TenantModel):
         minutes = (total_seconds % 3600) // 60
         seconds = total_seconds % 60
         return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
+
+    @property
+    def is_overdue(self):
+        """Check if task is overdue (due date has passed and not completed)"""
+        from django.utils import timezone
+        if self.status == 'COMPLETED':
+            return False
+        today = timezone.now().date()
+        return self.due_date < today
 
 
 def task_document_upload_path(instance, filename):

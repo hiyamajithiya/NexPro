@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Container,
   Typography,
@@ -46,9 +46,10 @@ import {
   PlayArrow as PlayIcon,
   Pause as PauseIcon,
   Timer as TimerIcon,
-  AccessTime as AccessTimeIcon,
+  Flag as FlagIcon,
 } from '@mui/icons-material';
 import { tasksAPI, clientsAPI, workTypesAPI, usersAPI, taskDocumentsAPI } from '../services/api';
+import { getErrorMessage } from '../utils/errorUtils';
 import { format } from 'date-fns';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -59,7 +60,6 @@ const getStatusChip = (status) => {
     'STARTED': { label: 'Started', color: 'info' },
     'PAUSED': { label: 'Paused', color: 'warning' },
     'COMPLETED': { label: 'Completed', color: 'success' },
-    'OVERDUE': { label: 'Overdue', color: 'error' },
   };
 
   const config = statusConfig[status] || { label: status, color: 'default' };
@@ -240,7 +240,7 @@ export default function Tasks() {
       // Ensure tasks is always an array
       setTasks(Array.isArray(data) ? data : (data.results || []));
     } catch (error) {
-      showSnackbar('Failed to fetch tasks', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to fetch tasks'), 'error');
       setTasks([]); // Set empty array on error
     } finally {
       setLoading(false);
@@ -308,7 +308,7 @@ export default function Tasks() {
       }
     } catch (error) {
       console.error('Failed to fetch period options', error);
-      showSnackbar('Failed to fetch period options', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to fetch period options'), 'error');
     } finally {
       setPeriodOptionsLoading(false);
     }
@@ -419,7 +419,7 @@ export default function Tasks() {
       handleCloseDialog();
       fetchTasks();
     } catch (error) {
-      showSnackbar(error.response?.data?.detail || 'Operation failed', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to save task'), 'error');
     }
   };
 
@@ -430,7 +430,7 @@ export default function Tasks() {
         showSnackbar('Task deleted successfully', 'success');
         fetchTasks();
       } catch (error) {
-        showSnackbar('Failed to delete task', 'error');
+        showSnackbar(getErrorMessage(error, 'Failed to delete task'), 'error');
       }
     }
   };
@@ -459,7 +459,7 @@ export default function Tasks() {
       handleCloseNotesDialog();
       fetchTasks();
     } catch (error) {
-      showSnackbar('Failed to save notes', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to save notes'), 'error');
     }
   };
 
@@ -472,7 +472,7 @@ export default function Tasks() {
       const response = await taskDocumentsAPI.getByTask(task.id);
       setDocuments(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
-      showSnackbar('Failed to fetch documents', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to fetch documents'), 'error');
       setDocuments([]);
     } finally {
       setDocumentsLoading(false);
@@ -501,7 +501,7 @@ export default function Tasks() {
       const response = await taskDocumentsAPI.getByTask(documentsTask.id);
       setDocuments(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
-      showSnackbar('Failed to upload document', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to upload document'), 'error');
     } finally {
       setUploadingDocument(false);
       // Reset the file input
@@ -523,7 +523,7 @@ export default function Tasks() {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (error) {
-      showSnackbar('Failed to download document', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to download document'), 'error');
     }
   };
 
@@ -536,7 +536,7 @@ export default function Tasks() {
         const response = await taskDocumentsAPI.getByTask(documentsTask.id);
         setDocuments(Array.isArray(response.data) ? response.data : []);
       } catch (error) {
-        showSnackbar('Failed to delete document', 'error');
+        showSnackbar(getErrorMessage(error, 'Failed to delete document'), 'error');
       }
     }
   };
@@ -563,7 +563,7 @@ export default function Tasks() {
       // Refresh tasks to get updated data
       fetchTasks();
     } catch (error) {
-      showSnackbar(error.response?.data?.error || 'Timer operation failed', 'error');
+      showSnackbar(getErrorMessage(error, 'Timer operation failed'), 'error');
     }
   };
 
@@ -584,14 +584,35 @@ export default function Tasks() {
       {
         field: 'due_date',
         headerName: 'Due Date',
-        width: 130,
-        renderCell: (params) => format(new Date(params.value), 'dd-MMM-yyyy'),
+        width: 160,
+        renderCell: (params) => {
+          const isOverdue = params.row.is_overdue;
+          return (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              {isOverdue && (
+                <Tooltip title="Overdue">
+                  <FlagIcon sx={{ color: 'error.main', fontSize: 18 }} />
+                </Tooltip>
+              )}
+              <span style={{ color: isOverdue ? '#d32f2f' : 'inherit', fontWeight: isOverdue ? 600 : 400 }}>
+                {format(new Date(params.value), 'dd-MMM-yyyy')}
+              </span>
+            </Box>
+          );
+        },
       },
       {
         field: 'status',
         headerName: 'Status',
         width: 140,
-        renderCell: (params) => getStatusChip(params.value),
+        renderCell: (params) => {
+          const isOverdue = params.row.is_overdue;
+          // If task is overdue, show it as error color regardless of actual status
+          if (isOverdue) {
+            return <Chip label={params.value.replace('_', ' ')} color="error" size="small" />;
+          }
+          return getStatusChip(params.value);
+        },
       },
       {
         field: 'time_spent',
@@ -730,7 +751,7 @@ export default function Tasks() {
     ];
   };
 
-  const statuses = ['NOT_STARTED', 'STARTED', 'PAUSED', 'COMPLETED', 'OVERDUE'];
+  const statuses = ['NOT_STARTED', 'STARTED', 'PAUSED', 'COMPLETED'];
 
   return (
     <Container maxWidth="xl">
@@ -1269,6 +1290,7 @@ export default function Tasks() {
         open={snackbar.open}
         autoHideDuration={4000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert
           onClose={() => setSnackbar({ ...snackbar, open: false })}

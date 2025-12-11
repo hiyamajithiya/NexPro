@@ -2412,7 +2412,9 @@ class DashboardViewSet(TenantViewSetMixin, viewsets.ViewSet):
                 'pending_tasks': base_qs.filter(
                     status__in=['NOT_STARTED', 'STARTED', 'IN_PROGRESS']
                 ).count(),
-                'overdue_tasks': base_qs.filter(status='OVERDUE').count(),
+                'overdue_tasks': base_qs.filter(
+                    due_date__lt=today
+                ).exclude(status='COMPLETED').count(),
                 'today_due': base_qs.filter(due_date=today).count(),
                 'week_due': base_qs.filter(
                     due_date__gte=today,
@@ -2433,7 +2435,9 @@ class DashboardViewSet(TenantViewSetMixin, viewsets.ViewSet):
                 'pending_tasks': base_qs.filter(
                     status__in=['NOT_STARTED', 'STARTED', 'IN_PROGRESS']
                 ).count(),
-                'overdue_tasks': base_qs.filter(status='OVERDUE').count(),
+                'overdue_tasks': base_qs.filter(
+                    due_date__lt=today
+                ).exclude(status='COMPLETED').count(),
                 'today_due': base_qs.filter(due_date=today).count(),
                 'week_due': base_qs.filter(
                     due_date__gte=today,
@@ -2455,7 +2459,7 @@ class DashboardViewSet(TenantViewSetMixin, viewsets.ViewSet):
         base_qs = self._get_base_queryset(request)
 
         tasks = base_qs.filter(
-            status__in=['NOT_STARTED', 'STARTED', 'IN_PROGRESS', 'OVERDUE']
+            status__in=['NOT_STARTED', 'STARTED', 'IN_PROGRESS']
         ).order_by('due_date')[:limit]
 
         serializer = WorkInstanceSerializer(tasks, many=True, context={'request': request})
