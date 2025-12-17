@@ -96,6 +96,470 @@ class EmailService:
             return None
 
     # ==========================================================================
+    # Professional Email Template Builder with Branding
+    # ==========================================================================
+
+    @staticmethod
+    def get_branding_config(organization=None):
+        """
+        Get branding configuration for emails.
+        Combines platform settings with organization-specific branding.
+
+        Returns:
+            dict: Branding configuration with colors, logos, names, etc.
+        """
+        from core.models import PlatformSettings
+
+        # Default branding
+        branding = {
+            'platform_name': 'NexPro',
+            'organization_name': 'NexPro',
+            'primary_color': '#667eea',
+            'secondary_color': '#764ba2',
+            'logo_url': None,
+            'support_email': 'support@nexpro.com',
+            'website_url': '',
+            'footer_text': 'Professional Practice Management System',
+            'year': datetime.now().year
+        }
+
+        # Get platform settings
+        try:
+            platform_settings = PlatformSettings.objects.first()
+            if platform_settings:
+                branding['platform_name'] = platform_settings.platform_name or 'NexPro'
+                branding['support_email'] = platform_settings.support_email or 'support@nexpro.com'
+        except Exception:
+            pass
+
+        # Override with organization branding if available
+        if organization:
+            branding['organization_name'] = organization.name
+            if organization.primary_color:
+                branding['primary_color'] = organization.primary_color
+            if hasattr(organization, 'logo') and organization.logo:
+                # Build full URL for logo
+                try:
+                    branding['logo_url'] = organization.logo.url
+                except Exception:
+                    pass
+
+        return branding
+
+    @staticmethod
+    def build_base_email_template(
+        subject,
+        body_content,
+        organization=None,
+        email_type='NOTIFICATION',
+        header_icon='📧',
+        header_title='Notification',
+        show_action_note=True,
+        action_note_text=None,
+        extra_content='',
+        cta_button=None
+    ):
+        """
+        Build a professional, branded HTML email template.
+
+        Args:
+            subject: Email subject for the header
+            body_content: The main body content (HTML or plain text)
+            organization: Organization instance for tenant branding
+            email_type: Type of email (REMINDER, NOTIFICATION, OTP, WELCOME, etc.)
+            header_icon: Emoji or icon for the header
+            header_title: Title shown in the header
+            show_action_note: Whether to show the action note box
+            action_note_text: Custom action note text
+            extra_content: Additional HTML content to add before footer
+            cta_button: Dict with 'text', 'url', 'color' for call-to-action button
+
+        Returns:
+            str: Complete HTML email template
+        """
+        branding = EmailService.get_branding_config(organization)
+
+        # Convert plain text newlines to HTML breaks if needed
+        if not re.search(r'<[^>]+>', body_content):
+            body_content = body_content.replace('\n', '<br>')
+
+        # Build gradient based on branding colors
+        primary_gradient = f"linear-gradient(135deg, {branding['primary_color']} 0%, {branding['secondary_color']} 100%)"
+
+        # Build logo HTML if available
+        logo_html = ""
+        if branding['logo_url']:
+            logo_html = f'''
+                <img src="{branding['logo_url']}" alt="{branding['organization_name']}"
+                     style="max-width: 120px; max-height: 60px; margin-bottom: 15px;" />
+            '''
+        else:
+            logo_html = f'''
+                <div style="width: 60px; height: 60px; background: rgba(255,255,255,0.2); border-radius: 50%; margin: 0 auto 12px; line-height: 60px;">
+                    <span style="font-size: 28px;">{header_icon}</span>
+                </div>
+            '''
+
+        # Build action note if needed
+        action_note_html = ""
+        if show_action_note:
+            note_text = action_note_text or "Please take necessary action at the earliest."
+            action_note_html = f'''
+                <div style="background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%); border-left: 4px solid {branding['primary_color']}; border-radius: 0 8px 8px 0; padding: 15px 20px; margin: 25px 0;">
+                    <p style="margin: 0; color: #4338ca; font-size: 14px; font-weight: 500;">
+                        💡 {note_text}
+                    </p>
+                </div>
+            '''
+
+        # Build CTA button if provided
+        cta_html = ""
+        if cta_button:
+            btn_color = cta_button.get('color', branding['primary_color'])
+            cta_html = f'''
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="{cta_button['url']}"
+                       style="display: inline-block; background: {btn_color}; color: white; text-decoration: none;
+                              padding: 14px 40px; border-radius: 50px; font-size: 15px; font-weight: 600;
+                              box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);">
+                        {cta_button['text']}
+                    </a>
+                </div>
+            '''
+
+        # Build the complete HTML email
+        html_email = f'''<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{subject}</title>
+    <!--[if mso]>
+    <style type="text/css">
+        table, td, div, p, a {{font-family: Arial, sans-serif;}}
+    </style>
+    <![endif]-->
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f8; -webkit-font-smoothing: antialiased;">
+    <table role="presentation" style="width: 100%; border-collapse: collapse;">
+        <tr>
+            <td align="center" style="padding: 40px 20px;">
+                <!-- Main Email Container -->
+                <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 40px rgba(102, 126, 234, 0.15);">
+
+                    <!-- Header with Branding -->
+                    <tr>
+                        <td style="background: {primary_gradient}; padding: 35px 30px; text-align: center;">
+                            <table role="presentation" style="width: 100%; border-collapse: collapse;">
+                                <tr>
+                                    <td align="center">
+                                        {logo_html}
+                                        <h1 style="margin: 0; color: white; font-size: 24px; font-weight: 700;">{header_title}</h1>
+                                        <p style="margin: 8px 0 0 0; color: rgba(255,255,255,0.85); font-size: 13px;">from {branding['organization_name']}</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Main Content -->
+                    <tr>
+                        <td style="padding: 35px 30px;">
+                            <!-- Body Content -->
+                            <div style="color: #374151; font-size: 15px; line-height: 1.7;">
+                                {body_content}
+                            </div>
+
+                            {extra_content}
+
+                            {action_note_html}
+
+                            {cta_html}
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background: #f8fafc; padding: 25px 30px; text-align: center; border-top: 1px solid #e2e8f0;">
+                            <table role="presentation" style="width: 100%; border-collapse: collapse;">
+                                <tr>
+                                    <td align="center">
+                                        <p style="margin: 0 0 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">{branding['organization_name']}</p>
+                                        <p style="margin: 0 0 12px 0; color: #94a3b8; font-size: 12px;">{branding['footer_text']}</p>
+                                        <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; margin-top: 15px;">
+                                            <p style="margin: 0; color: #94a3b8; font-size: 11px;">
+                                                This is an automated email. Please do not reply directly.
+                                            </p>
+                                            <p style="margin: 5px 0 0 0; color: #94a3b8; font-size: 11px;">
+                                                For support: <a href="mailto:{branding['support_email']}" style="color: {branding['primary_color']};">{branding['support_email']}</a>
+                                            </p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                </table>
+
+                <!-- Bottom Platform Branding -->
+                <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse; margin-top: 20px;">
+                    <tr>
+                        <td align="center">
+                            <p style="margin: 0; color: #9ca3af; font-size: 11px;">
+                                Powered by <span style="color: {branding['primary_color']}; font-weight: 600;">{branding['platform_name']}</span> &copy; {branding['year']}
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>'''
+
+        return html_email
+
+    @staticmethod
+    def build_task_details_card(task_details, is_overdue=False, branding=None):
+        """
+        Build a task details card for inclusion in emails.
+
+        Args:
+            task_details: Dict with work_name, period_label, due_date, status, client_name
+            is_overdue: Whether the task is overdue
+            branding: Optional branding config dict
+
+        Returns:
+            str: HTML for the task details card
+        """
+        if not task_details:
+            return ""
+
+        primary_color = branding.get('primary_color', '#667eea') if branding else '#667eea'
+
+        # Status badge styling
+        if is_overdue:
+            status_badge_bg = "#fee2e2"
+            status_badge_color = "#dc2626"
+            status_badge_border = "#fecaca"
+            status_text = "⚠️ OVERDUE"
+        else:
+            status_badge_bg = "#dcfce7"
+            status_badge_color = "#16a34a"
+            status_badge_border = "#bbf7d0"
+            status_text = task_details.get('status', 'Pending')
+
+        client_row = ""
+        if task_details.get('client_name'):
+            client_row = f'''
+                <tr>
+                    <td style="padding: 8px 0; color: #64748b; font-size: 13px; border-top: 1px solid #e2e8f0;">Client</td>
+                    <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500; border-top: 1px solid #e2e8f0;">👤 {task_details.get("client_name", "")}</td>
+                </tr>
+            '''
+
+        return f'''
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 25px 0;">
+                <div style="margin-bottom: 15px;">
+                    <span style="font-size: 18px; margin-right: 8px;">📝</span>
+                    <span style="font-size: 16px; font-weight: 600; color: #334155;">Task Details</span>
+                </div>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">Task Name</td>
+                        <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500;">{task_details.get('work_name', 'N/A')}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b; font-size: 13px; border-top: 1px solid #e2e8f0;">Period</td>
+                        <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500; border-top: 1px solid #e2e8f0;">{task_details.get('period_label', 'N/A')}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b; font-size: 13px; border-top: 1px solid #e2e8f0;">Due Date</td>
+                        <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600; border-top: 1px solid #e2e8f0;">
+                            <span style="color: {'#dc2626' if is_overdue else '#1e293b'};">📅 {task_details.get('due_date', 'N/A')}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b; font-size: 13px; border-top: 1px solid #e2e8f0;">Status</td>
+                        <td style="padding: 8px 0; border-top: 1px solid #e2e8f0;">
+                            <span style="background: {status_badge_bg}; color: {status_badge_color}; border: 1px solid {status_badge_border}; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;">{status_text}</span>
+                        </td>
+                    </tr>
+                    {client_row}
+                </table>
+            </div>
+        '''
+
+    @staticmethod
+    def build_otp_email(otp_code, purpose='SIGNUP', user_name=None, organization=None):
+        """
+        Build a professional OTP email with branding.
+
+        Args:
+            otp_code: The OTP code to display
+            purpose: 'SIGNUP' or 'PASSWORD_RESET'
+            user_name: Optional user name for personalization
+            organization: Optional organization for branding
+
+        Returns:
+            tuple: (subject, plain_text, html_content)
+        """
+        branding = EmailService.get_branding_config(organization)
+        greeting = f"Dear {user_name}" if user_name else "Dear User"
+
+        if purpose == 'SIGNUP':
+            subject = f"{branding['platform_name']} - Verify Your Email (OTP: {otp_code})"
+            header_title = "Email Verification"
+            header_icon = "✉️"
+            intro_text = f"Thank you for registering with {branding['platform_name']}. Please use the following OTP to verify your email address:"
+            warning_title = "⚠️ Important Security Information"
+            warning_color = "#ffc107"
+            warning_bg = "#fff8e1"
+        else:  # PASSWORD_RESET
+            subject = f"{branding['platform_name']} - Password Reset OTP (OTP: {otp_code})"
+            header_title = "Password Reset"
+            header_icon = "🔐"
+            intro_text = "We received a request to reset your password. Please use the following OTP to proceed:"
+            warning_title = "🚨 Security Alert"
+            warning_color = "#e91e63"
+            warning_bg = "#fce4ec"
+
+        # Plain text version
+        plain_text = f"""
+{greeting},
+
+{intro_text}
+
+Your One-Time Password (OTP): {otp_code}
+
+This OTP is valid for 10 minutes. Please do not share this code with anyone.
+
+If you did not request this, please ignore this email.
+
+Best Regards,
+{branding['organization_name']} Team
+
+---
+This is an automated email from {branding['platform_name']}. Please do not reply.
+For support, contact: {branding['support_email']}
+"""
+
+        # OTP box HTML
+        otp_box = f'''
+            <div style="background: linear-gradient(135deg, {branding['primary_color']} 0%, {branding['secondary_color']} 100%); border-radius: 12px; padding: 25px; text-align: center; margin: 25px 0;">
+                <p style="margin: 0 0 8px 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase; letter-spacing: 2px;">Your Verification Code</p>
+                <p style="margin: 0; color: white; font-size: 36px; font-weight: 700; letter-spacing: 10px;">{otp_code}</p>
+            </div>
+
+            <div style="background: {warning_bg}; border-left: 4px solid {warning_color}; border-radius: 0 8px 8px 0; padding: 15px 20px; margin: 25px 0;">
+                <p style="margin: 0 0 8px 0; color: {'#856404' if purpose == 'SIGNUP' else '#c2185b'}; font-weight: 600; font-size: 14px;">{warning_title}</p>
+                <ul style="margin: 0; padding-left: 20px; color: {'#856404' if purpose == 'SIGNUP' else '#c2185b'}; font-size: 13px; line-height: 1.8;">
+                    <li>This OTP is valid for <strong>10 minutes</strong> only</li>
+                    <li>Never share this code with anyone</li>
+                    <li>{branding['platform_name']} will never ask for your OTP via phone or email</li>
+                </ul>
+            </div>
+        '''
+
+        body_content = f"""
+            <h2 style="margin: 0 0 15px 0; color: #333; font-size: 20px; font-weight: 600;">{greeting}!</h2>
+            <p style="margin: 0 0 25px 0; color: #666; font-size: 15px; line-height: 1.6;">{intro_text}</p>
+        """
+
+        html_content = EmailService.build_base_email_template(
+            subject=subject,
+            body_content=body_content,
+            organization=organization,
+            email_type='OTP',
+            header_icon=header_icon,
+            header_title=header_title,
+            show_action_note=False,
+            extra_content=otp_box
+        )
+
+        return subject, plain_text, html_content
+
+    @staticmethod
+    def build_test_email(recipient_email, organization=None, sender_name=None):
+        """
+        Build a test email to verify email configuration.
+
+        Args:
+            recipient_email: Email address receiving the test
+            organization: Optional organization for branding
+            sender_name: Optional sender name/email account name
+
+        Returns:
+            tuple: (subject, plain_text, html_content)
+        """
+        branding = EmailService.get_branding_config(organization)
+        timestamp = datetime.now().strftime('%d-%b-%Y %H:%M:%S')
+
+        subject = f"✅ Test Email from {sender_name or branding['organization_name']}"
+
+        plain_text = f"""
+Test Email - {branding['platform_name']}
+
+This is a test email to verify your email configuration is working correctly.
+
+Details:
+- Sent to: {recipient_email}
+- Sent at: {timestamp}
+- Sender: {sender_name or branding['organization_name']}
+
+If you received this email, your email configuration is working properly.
+
+Best Regards,
+{branding['organization_name']} Team
+"""
+
+        body_content = f"""
+            <h2 style="margin: 0 0 15px 0; color: #333; font-size: 20px; font-weight: 600;">Email Configuration Test</h2>
+            <p style="margin: 0 0 25px 0; color: #666; font-size: 15px; line-height: 1.6;">
+                This is a test email to verify your email configuration is working correctly.
+            </p>
+
+            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin: 20px 0;">
+                <div style="margin-bottom: 10px;">
+                    <span style="font-size: 18px; margin-right: 8px;">✅</span>
+                    <span style="font-size: 16px; font-weight: 600; color: #16a34a;">Configuration Test Successful</span>
+                </div>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 100px;">Sent to</td>
+                        <td style="padding: 8px 0; color: #1e293b; font-size: 14px;">{recipient_email}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b; font-size: 13px; border-top: 1px solid #e2e8f0;">Sent at</td>
+                        <td style="padding: 8px 0; color: #1e293b; font-size: 14px; border-top: 1px solid #e2e8f0;">{timestamp}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b; font-size: 13px; border-top: 1px solid #e2e8f0;">Sender</td>
+                        <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500; border-top: 1px solid #e2e8f0;">{sender_name or branding['organization_name']}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <p style="margin: 20px 0 0 0; color: #666; font-size: 14px;">
+                If you received this email, your email configuration is working properly.
+                You can now use this email account to send reminders and notifications.
+            </p>
+        """
+
+        html_content = EmailService.build_base_email_template(
+            subject=subject,
+            body_content=body_content,
+            organization=organization,
+            email_type='OTHER',
+            header_icon='📧',
+            header_title='Test Email',
+            show_action_note=False
+        )
+
+        return subject, plain_text, html_content
+
+    # ==========================================================================
     # Email Provider Support (SendGrid, SES, SMTP)
     # ==========================================================================
 
@@ -1085,18 +1549,19 @@ Best regards,
     def send_test_email_for_account(email_account, recipient_email):
         """
         Send a test email using an organization email account's configuration.
+        Uses professional branding template.
         Returns: (success: bool, error_message: str or None)
         """
-        subject = f'Test Email from {email_account.display_name or email_account.email_address}'
-        message = f'''This is a test email sent from your NexPro email account.
-
-Account: {email_account.email_address}
-Display Name: {email_account.display_name or 'Not set'}
-
-If you received this email, your email configuration is working correctly.'''
-
         # Get organization from email account
         organization = email_account.organization if hasattr(email_account, 'organization') else None
+        sender_name = email_account.display_name or email_account.email_address
+
+        # Build professional test email with branding
+        subject, message, html_message = EmailService.build_test_email(
+            recipient_email=recipient_email,
+            organization=organization,
+            sender_name=sender_name
+        )
 
         # Get effective SMTP settings (handles PLATFORM, CUSTOM, and INHERIT sources)
         smtp_settings = email_account.get_effective_smtp_settings()
@@ -1113,6 +1578,7 @@ If you received this email, your email configuration is working correctly.'''
                 smtp_username=smtp_settings['username'],
                 smtp_password=smtp_settings['password'],
                 use_tls=smtp_settings['use_tls'],
+                html_body=html_message,
                 organization=organization,
                 email_type='OTHER'
             )
@@ -1125,6 +1591,7 @@ If you received this email, your email configuration is working correctly.'''
                 body=message,
                 from_email=email_account.email_address,
                 from_name=email_account.display_name,
+                html_body=html_message,
                 organization=organization,
                 email_type='OTHER'
             )
