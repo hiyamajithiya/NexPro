@@ -948,6 +948,13 @@ Best Regards,
         """Build context dictionary from work instance"""
         client = work_instance.client_work.client
         work_type = work_instance.client_work.work_type
+        organization = work_instance.organization
+
+        # Use organization's firm_name for multi-tenant support
+        # Falls back to global settings if organization doesn't have firm_name set
+        firm_name = settings.FIRM_NAME
+        if organization and organization.firm_name:
+            firm_name = organization.firm_name
 
         return {
             'client_name': client.client_name,
@@ -957,7 +964,7 @@ Best Regards,
             'due_date': work_instance.due_date.strftime('%d-%b-%Y'),
             'work_name': work_type.work_name,
             'statutory_form': work_type.statutory_form or '',
-            'firm_name': settings.FIRM_NAME,
+            'firm_name': firm_name,
         }
 
     @staticmethod
