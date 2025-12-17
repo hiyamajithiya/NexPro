@@ -4,14 +4,96 @@ from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import make_msgid
 import re
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
 
 class EmailService:
     """Service for rendering and sending emails"""
+
+    # ==========================================================================
+    # Email Tracking Support
+    # ==========================================================================
+
+    @staticmethod
+    def generate_tracking_id():
+        """Generate a unique tracking ID for an email"""
+        return str(uuid.uuid4()).replace('-', '')
+
+    @staticmethod
+    def add_tracking_headers(msg, tracking_id, organization_id=None):
+        """
+        Add tracking headers to an email message.
+
+        Headers added:
+        - X-NexPro-Tracking-ID: Unique tracking ID for this email
+        - X-NexPro-Org-ID: Organization ID (if applicable)
+        - Message-ID: Standard message ID (if not already set)
+
+        Args:
+            msg: MIMEMultipart message object
+            tracking_id: Unique tracking ID
+            organization_id: Optional organization ID
+
+        Returns:
+            str: The Message-ID that was set/used
+        """
+        # Add custom tracking header
+        msg['X-NexPro-Tracking-ID'] = tracking_id
+
+        # Add organization ID if provided
+        if organization_id:
+            msg['X-NexPro-Org-ID'] = str(organization_id)
+
+        # Generate and set Message-ID if not already set
+        if 'Message-ID' not in msg:
+            domain = settings.DEFAULT_FROM_EMAIL.split('@')[-1] if '@' in settings.DEFAULT_FROM_EMAIL else 'nexpro.local'
+            message_id = make_msgid(idstring=tracking_id[:8], domain=domain)
+            msg['Message-ID'] = message_id
+        else:
+            message_id = msg['Message-ID']
+
+        return message_id
+
+    @staticmethod
+    def log_email(organization, from_email, to_email, subject, tracking_id,
+                  email_type='OTHER', provider='SMTP', message_id=None,
+                  work_instance=None, reminder_instance=None, client=None,
+                  user=None, cc_emails='', bcc_emails='', metadata=None):
+        """
+        Log an email to the EmailLog model.
+
+        Returns: EmailLog instance or None if logging fails
+        """
+        try:
+            from core.models import EmailLog
+
+            email_log = EmailLog.objects.create(
+                organization=organization,
+                tracking_id=tracking_id,
+                message_id=message_id,
+                from_email=from_email,
+                to_email=to_email,
+                cc_emails=cc_emails,
+                bcc_emails=bcc_emails,
+                subject=subject,
+                email_type=email_type,
+                provider=provider,
+                work_instance=work_instance,
+                reminder_instance=reminder_instance,
+                client=client,
+                user=user,
+                status='PENDING',
+                metadata=metadata or {}
+            )
+            return email_log
+        except Exception as e:
+            logger.error(f"Failed to log email: {str(e)}")
+            return None
 
     # ==========================================================================
     # Email Provider Support (SendGrid, SES, SMTP)
@@ -184,13 +266,36 @@ class EmailService:
             return None
 
     @staticmethod
-    def send_email_via_platform_smtp_with_from(to_email, subject, body, from_email=None, from_name=None, html_body=None):
+    def send_email_via_platform_smtp_with_from(to_email, subject, body, from_email=None,
+                                                from_name=None, html_body=None,
+                                                organization=None, email_type='OTHER',
+                                                work_instance=None, reminder_instance=None,
+                                                client=None, user=None):
         """
         Send an email using the platform's SMTP configuration with a custom "from" address.
         This is used when tenants want to use platform SMTP but with their own sender identity.
         Falls back to Django settings if platform SMTP is not configured.
-        Returns: (success: bool, error_message: str or None)
+        Returns: (success: bool, error_message: str or None, tracking_id: str or None)
         """
+        # Generate tracking ID for this email
+        tracking_id = EmailService.generate_tracking_id()
+        actual_from_email = from_email or settings.DEFAULT_FROM_EMAIL
+
+        # Create email log entry
+        email_log = EmailService.log_email(
+            organization=organization,
+            from_email=actual_from_email,
+            to_email=to_email,
+            subject=subject,
+            tracking_id=tracking_id,
+            email_type=email_type,
+            provider='SMTP',
+            work_instance=work_instance,
+            reminder_instance=reminder_instance,
+            client=client,
+            user=user
+        )
+
         smtp_config = EmailService.get_platform_smtp_settings()
 
         if not smtp_config:
@@ -205,9 +310,13 @@ class EmailService:
                     html_message=html_body,
                     fail_silently=False,
                 )
-                return True, None
+                if email_log:
+                    email_log.mark_sent()
+                return True, None, tracking_id
             except Exception as e:
-                return False, str(e)
+                if email_log:
+                    email_log.mark_failed(str(e))
+                return False, str(e), tracking_id
 
         # Use platform SMTP settings with custom from address
         try:
@@ -218,6 +327,12 @@ class EmailService:
             actual_from_name = from_name or smtp_config["from_name"]
             msg['From'] = f'{actual_from_name} <{actual_from_email}>'
             msg['To'] = to_email
+
+            # Add tracking headers
+            message_id = EmailService.add_tracking_headers(
+                msg, tracking_id,
+                organization_id=organization.id if organization else None
+            )
 
             # Attach plain text
             part1 = MIMEText(body, 'plain')
@@ -241,18 +356,50 @@ class EmailService:
             server.sendmail(smtp_config['from_email'], [to_email], msg.as_string())
             server.quit()
 
-            return True, None
+            # Mark as sent
+            if email_log:
+                email_log.mark_sent(message_id=message_id)
+
+            logger.info(f"Email sent via platform SMTP with custom from. Tracking ID: {tracking_id}")
+            return True, None, tracking_id
         except Exception as e:
-            return False, str(e)
+            if email_log:
+                email_log.mark_failed(str(e))
+            return False, str(e), tracking_id
 
     @staticmethod
-    def send_email_via_platform_smtp(to_email, subject, body, html_body=None):
+    def send_email_via_platform_smtp(to_email, subject, body, html_body=None,
+                                     organization=None, email_type='OTHER',
+                                     work_instance=None, reminder_instance=None,
+                                     client=None, user=None):
         """
         Send an email using the platform's SMTP configuration.
         Falls back to Django settings if platform SMTP is not configured.
-        Returns: (success: bool, error_message: str or None)
+
+        Now includes email tracking with unique tracking ID.
+
+        Returns: (success: bool, error_message: str or None, tracking_id: str or None)
         """
+        # Generate tracking ID for this email
+        tracking_id = EmailService.generate_tracking_id()
+
         smtp_config = EmailService.get_platform_smtp_settings()
+        from_email = smtp_config['from_email'] if smtp_config else settings.DEFAULT_FROM_EMAIL
+
+        # Create email log entry
+        email_log = EmailService.log_email(
+            organization=organization,
+            from_email=from_email,
+            to_email=to_email,
+            subject=subject,
+            tracking_id=tracking_id,
+            email_type=email_type,
+            provider='SMTP',
+            work_instance=work_instance,
+            reminder_instance=reminder_instance,
+            client=client,
+            user=user
+        )
 
         if not smtp_config:
             # Fall back to Django settings
@@ -265,9 +412,14 @@ class EmailService:
                     html_message=html_body,
                     fail_silently=False,
                 )
-                return True, None
+                # Mark as sent
+                if email_log:
+                    email_log.mark_sent()
+                return True, None, tracking_id
             except Exception as e:
-                return False, str(e)
+                if email_log:
+                    email_log.mark_failed(str(e))
+                return False, str(e), tracking_id
 
         # Use platform SMTP settings
         try:
@@ -275,6 +427,12 @@ class EmailService:
             msg['Subject'] = subject
             msg['From'] = f'{smtp_config["from_name"]} <{smtp_config["from_email"]}>'
             msg['To'] = to_email
+
+            # Add tracking headers
+            message_id = EmailService.add_tracking_headers(
+                msg, tracking_id,
+                organization_id=organization.id if organization else None
+            )
 
             # Attach plain text
             part1 = MIMEText(body, 'plain')
@@ -298,9 +456,16 @@ class EmailService:
             server.sendmail(smtp_config['from_email'], [to_email], msg.as_string())
             server.quit()
 
-            return True, None
+            # Mark as sent with message ID
+            if email_log:
+                email_log.mark_sent(message_id=message_id)
+
+            logger.info(f"Email sent successfully. Tracking ID: {tracking_id}")
+            return True, None, tracking_id
         except Exception as e:
-            return False, str(e)
+            if email_log:
+                email_log.mark_failed(str(e))
+            return False, str(e), tracking_id
 
     @staticmethod
     def render_template(template_str, context):
@@ -606,15 +771,29 @@ Best regards,
             reminder_instance.subject_rendered = subject
             reminder_instance.body_rendered = body
 
-            # Send email using organization's email account with HTML
-            success, error = EmailService.send_email_for_organization(
+            # Determine email type based on recipient type
+            email_type = 'REMINDER_CLIENT' if recipient_type == 'CLIENT' else 'REMINDER_EMPLOYEE'
+
+            # Get client for tracking
+            client = work_instance.client_work.client if work_instance.client_work else None
+
+            # Send email using organization's email account with HTML and tracking
+            success, error, tracking_id = EmailService.send_email_for_organization(
                 organization=organization,
                 to_email=reminder_instance.email_to,
                 subject=subject,
                 body=body,
                 html_body=html_body,
-                work_type=work_type
+                work_type=work_type,
+                email_type=email_type,
+                work_instance=work_instance,
+                reminder_instance=reminder_instance,
+                client=client
             )
+
+            # Store tracking ID in reminder instance metadata if available
+            if tracking_id:
+                logger.info(f"Reminder email sent with tracking ID: {tracking_id}")
 
             return success, error
 
@@ -705,18 +884,48 @@ Best regards,
         smtp_username,
         smtp_password,
         use_tls=True,
-        html_body=None
+        html_body=None,
+        organization=None,
+        email_type='OTHER',
+        work_instance=None,
+        reminder_instance=None,
+        client=None,
+        user=None
     ):
         """
-        Send an email using custom SMTP configuration.
-        Returns: (success: bool, error_message: str or None)
+        Send an email using custom SMTP configuration with tracking.
+        Returns: (success: bool, error_message: str or None, tracking_id: str or None)
         """
+        # Generate tracking ID for this email
+        tracking_id = EmailService.generate_tracking_id()
+
+        # Create email log entry
+        email_log = EmailService.log_email(
+            organization=organization,
+            from_email=from_email,
+            to_email=to_email,
+            subject=subject,
+            tracking_id=tracking_id,
+            email_type=email_type,
+            provider='SMTP',
+            work_instance=work_instance,
+            reminder_instance=reminder_instance,
+            client=client,
+            user=user
+        )
+
         try:
             # Create message
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
             msg['From'] = from_email
             msg['To'] = to_email
+
+            # Add tracking headers
+            message_id = EmailService.add_tracking_headers(
+                msg, tracking_id,
+                organization_id=organization.id if organization else None
+            )
 
             # Attach plain text
             part1 = MIMEText(body, 'plain')
@@ -739,9 +948,16 @@ Best regards,
             server.sendmail(from_email, [to_email], msg.as_string())
             server.quit()
 
-            return True, None
+            # Mark as sent
+            if email_log:
+                email_log.mark_sent(message_id=message_id)
+
+            logger.info(f"Email sent via custom SMTP. Tracking ID: {tracking_id}")
+            return True, None, tracking_id
         except Exception as e:
-            return False, str(e)
+            if email_log:
+                email_log.mark_failed(str(e))
+            return False, str(e), tracking_id
 
     @staticmethod
     def get_default_email_account(organization):
@@ -769,12 +985,14 @@ Best regards,
         ).first()
 
     @staticmethod
-    def send_email_for_organization(organization, to_email, subject, body, html_body=None, work_type=None):
+    def send_email_for_organization(organization, to_email, subject, body, html_body=None,
+                                     work_type=None, email_type='OTHER', work_instance=None,
+                                     reminder_instance=None, client=None, user=None):
         """
         Send an email using the organization's email account configuration.
         If work_type is provided, uses the email linked to that work type.
         Otherwise uses the default email account.
-        Returns: (success: bool, error_message: str or None)
+        Returns: (success: bool, error_message: str or None, tracking_id: str or None)
         """
         from core.models import OrganizationEmail
 
@@ -790,6 +1008,21 @@ Best regards,
 
         # If no email account configured, use system default
         if not email_account:
+            # Generate tracking for system default emails too
+            tracking_id = EmailService.generate_tracking_id()
+            email_log = EmailService.log_email(
+                organization=organization,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to_email=to_email,
+                subject=subject,
+                tracking_id=tracking_id,
+                email_type=email_type,
+                provider='SMTP',
+                work_instance=work_instance,
+                reminder_instance=reminder_instance,
+                client=client,
+                user=user
+            )
             try:
                 send_mail(
                     subject=subject,
@@ -799,9 +1032,13 @@ Best regards,
                     html_message=html_body,
                     fail_silently=False,
                 )
-                return True, None
+                if email_log:
+                    email_log.mark_sent()
+                return True, None, tracking_id
             except Exception as e:
-                return False, str(e)
+                if email_log:
+                    email_log.mark_failed(str(e))
+                return False, str(e), tracking_id
 
         # Get effective SMTP settings (handles PLATFORM, CUSTOM, and INHERIT sources)
         smtp_settings = email_account.get_effective_smtp_settings()
@@ -819,6 +1056,12 @@ Best regards,
                 smtp_password=smtp_settings['password'],
                 use_tls=smtp_settings['use_tls'],
                 html_body=html_body,
+                organization=organization,
+                email_type=email_type,
+                work_instance=work_instance,
+                reminder_instance=reminder_instance,
+                client=client,
+                user=user
             )
         else:
             # Use platform SMTP settings with the organization's email address as "from"
@@ -829,7 +1072,13 @@ Best regards,
                 body=body,
                 from_email=email_account.email_address,
                 from_name=email_account.display_name,
-                html_body=html_body
+                html_body=html_body,
+                organization=organization,
+                email_type=email_type,
+                work_instance=work_instance,
+                reminder_instance=reminder_instance,
+                client=client,
+                user=user
             )
 
     @staticmethod
@@ -846,12 +1095,15 @@ Display Name: {email_account.display_name or 'Not set'}
 
 If you received this email, your email configuration is working correctly.'''
 
+        # Get organization from email account
+        organization = email_account.organization if hasattr(email_account, 'organization') else None
+
         # Get effective SMTP settings (handles PLATFORM, CUSTOM, and INHERIT sources)
         smtp_settings = email_account.get_effective_smtp_settings()
 
         if smtp_settings:
             # Use custom SMTP (either direct or inherited from another account)
-            return EmailService.send_email_with_custom_smtp(
+            success, error, tracking_id = EmailService.send_email_with_custom_smtp(
                 to_email=recipient_email,
                 subject=subject,
                 body=message,
@@ -861,13 +1113,19 @@ If you received this email, your email configuration is working correctly.'''
                 smtp_username=smtp_settings['username'],
                 smtp_password=smtp_settings['password'],
                 use_tls=smtp_settings['use_tls'],
+                organization=organization,
+                email_type='OTHER'
             )
+            return success, error
         else:
             # Use platform SMTP settings with the account's email as sender
-            return EmailService.send_email_via_platform_smtp_with_from(
+            success, error, tracking_id = EmailService.send_email_via_platform_smtp_with_from(
                 to_email=recipient_email,
                 subject=subject,
                 body=message,
                 from_email=email_account.email_address,
-                from_name=email_account.display_name
+                from_name=email_account.display_name,
+                organization=organization,
+                email_type='OTHER'
             )
+            return success, error

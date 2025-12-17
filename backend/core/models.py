@@ -2358,6 +2358,267 @@ class EmailUsageLog(models.Model):
 
 
 # =============================================================================
+# EMAIL LOG (for tracking all sent emails with unique IDs)
+# =============================================================================
+
+class EmailLog(TenantModel):
+    """
+    Tracks all emails sent through the application with unique tracking IDs.
+    This enables email tracing via Gmail API or other email providers.
+
+    Each email gets a unique tracking_id that is embedded in the email headers
+    as X-NexPro-Tracking-ID and can be used to correlate with Gmail messages.
+    """
+    # Unique tracking identifier
+    tracking_id = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="Unique tracking ID for this email (UUID)"
+    )
+
+    # Email message identifiers
+    message_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text="SMTP Message-ID header value"
+    )
+    gmail_message_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text="Gmail API message ID (for Gmail-sent emails)"
+    )
+    gmail_thread_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Gmail thread ID for conversation tracking"
+    )
+
+    # Email details
+    from_email = models.EmailField(
+        help_text="Sender email address"
+    )
+    to_email = models.EmailField(
+        help_text="Primary recipient email address"
+    )
+    cc_emails = models.TextField(
+        blank=True,
+        default='',
+        help_text="CC recipients (comma-separated)"
+    )
+    bcc_emails = models.TextField(
+        blank=True,
+        default='',
+        help_text="BCC recipients (comma-separated)"
+    )
+    subject = models.CharField(
+        max_length=500,
+        help_text="Email subject"
+    )
+
+    # Email type and purpose
+    EMAIL_TYPE_CHOICES = [
+        ('REMINDER_CLIENT', 'Client Reminder'),
+        ('REMINDER_EMPLOYEE', 'Employee Reminder'),
+        ('NOTIFICATION', 'Notification'),
+        ('OTP', 'OTP/Verification'),
+        ('REPORT', 'Report'),
+        ('TASK_ASSIGNMENT', 'Task Assignment'),
+        ('PASSWORD_RESET', 'Password Reset'),
+        ('WELCOME', 'Welcome Email'),
+        ('CUSTOM', 'Custom Email'),
+        ('OTHER', 'Other'),
+    ]
+    email_type = models.CharField(
+        max_length=30,
+        choices=EMAIL_TYPE_CHOICES,
+        default='OTHER',
+        help_text="Type/purpose of email"
+    )
+
+    # Related entities (optional)
+    work_instance = models.ForeignKey(
+        'WorkInstance',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='email_logs',
+        help_text="Related work instance (if applicable)"
+    )
+    reminder_instance = models.ForeignKey(
+        'ReminderInstance',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='email_logs',
+        help_text="Related reminder instance (if applicable)"
+    )
+    client = models.ForeignKey(
+        'Client',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='email_logs',
+        help_text="Related client (if applicable)"
+    )
+    user = models.ForeignKey(
+        'User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sent_email_logs',
+        help_text="User who triggered the email (if applicable)"
+    )
+
+    # Email provider info
+    PROVIDER_CHOICES = [
+        ('SMTP', 'SMTP'),
+        ('SENDGRID', 'SendGrid'),
+        ('SES', 'Amazon SES'),
+        ('GMAIL_API', 'Gmail API'),
+    ]
+    provider = models.CharField(
+        max_length=20,
+        choices=PROVIDER_CHOICES,
+        default='SMTP',
+        help_text="Email provider used to send"
+    )
+
+    # Status tracking
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('SENT', 'Sent'),
+        ('DELIVERED', 'Delivered'),
+        ('OPENED', 'Opened'),
+        ('CLICKED', 'Clicked'),
+        ('BOUNCED', 'Bounced'),
+        ('FAILED', 'Failed'),
+        ('SPAM', 'Marked as Spam'),
+    ]
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='PENDING',
+        help_text="Email delivery status"
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When email was sent"
+    )
+    delivered_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When email was delivered (if known)"
+    )
+    opened_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When email was opened (if tracked)"
+    )
+
+    # Error tracking
+    error_message = models.TextField(
+        blank=True,
+        default='',
+        help_text="Error message if sending failed"
+    )
+    retry_count = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Number of retry attempts"
+    )
+
+    # Additional metadata (JSON)
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Additional metadata (headers, attachments info, etc.)"
+    )
+
+    class Meta:
+        db_table = 'email_logs'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['tracking_id']),
+            models.Index(fields=['message_id']),
+            models.Index(fields=['gmail_message_id']),
+            models.Index(fields=['to_email']),
+            models.Index(fields=['email_type']),
+            models.Index(fields=['status']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['organization', 'created_at']),
+            models.Index(fields=['work_instance']),
+        ]
+
+    def __str__(self):
+        return f"[{self.tracking_id[:8]}] {self.to_email} - {self.subject[:50]}"
+
+    @classmethod
+    def generate_tracking_id(cls):
+        """Generate a unique tracking ID for an email"""
+        import uuid
+        return str(uuid.uuid4()).replace('-', '')
+
+    @classmethod
+    def create_log(cls, organization, from_email, to_email, subject,
+                   email_type='OTHER', provider='SMTP', **kwargs):
+        """
+        Create an email log entry with auto-generated tracking ID.
+        Returns the EmailLog instance.
+        """
+        tracking_id = cls.generate_tracking_id()
+
+        return cls.objects.create(
+            organization=organization,
+            tracking_id=tracking_id,
+            from_email=from_email,
+            to_email=to_email,
+            subject=subject,
+            email_type=email_type,
+            provider=provider,
+            **kwargs
+        )
+
+    def mark_sent(self, message_id=None, gmail_message_id=None, gmail_thread_id=None):
+        """Mark email as sent with optional message IDs"""
+        from django.utils import timezone
+
+        self.status = 'SENT'
+        self.sent_at = timezone.now()
+
+        if message_id:
+            self.message_id = message_id
+        if gmail_message_id:
+            self.gmail_message_id = gmail_message_id
+        if gmail_thread_id:
+            self.gmail_thread_id = gmail_thread_id
+
+        self.save()
+
+    def mark_failed(self, error_message):
+        """Mark email as failed with error message"""
+        self.status = 'FAILED'
+        self.error_message = error_message
+        self.retry_count += 1
+        self.save()
+
+    def update_gmail_ids(self, gmail_message_id, gmail_thread_id=None):
+        """Update Gmail IDs after successful send via Gmail API"""
+        self.gmail_message_id = gmail_message_id
+        if gmail_thread_id:
+            self.gmail_thread_id = gmail_thread_id
+        self.save(update_fields=['gmail_message_id', 'gmail_thread_id'])
+
+
+# =============================================================================
 # SUBSCRIPTION PLANS (Super Admin Managed)
 # =============================================================================
 
