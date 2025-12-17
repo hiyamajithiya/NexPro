@@ -56,6 +56,7 @@ import {
   RadioButtonUnchecked as OptionalIcon,
 } from '@mui/icons-material';
 import { workTypesAPI, organizationEmailsAPI, subtaskCategoriesAPI } from '../services/api';
+import { getErrorMessage } from '../utils/errorUtils';
 
 export default function WorkTypes() {
   const [workTypes, setWorkTypes] = useState([]);
@@ -75,7 +76,7 @@ export default function WorkTypes() {
     is_auto_driven: false,
     auto_start_on_creation: true,
     // Sender email configuration
-    sender_email: null,
+    sender_email: '',
     // Client reminder configuration
     enable_client_reminders: true,
     client_reminder_start_day: 1,
@@ -145,7 +146,7 @@ export default function WorkTypes() {
       const data = response.data;
       setWorkTypes(Array.isArray(data) ? data : (data.results || []));
     } catch (error) {
-      showSnackbar('Failed to fetch task categories', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to fetch task categories'), 'error');
       setWorkTypes([]);
     } finally {
       setLoading(false);
@@ -180,7 +181,10 @@ export default function WorkTypes() {
   }, []);
 
   const handleOpenDialog = (workType = null) => {
+    console.log('handleOpenDialog called with:', workType);
+
     if (workType) {
+      // Edit mode - load existing work type data
       setEditingWorkType(workType);
       setFormData(workType);
       if (workType.client_reminder_weekdays) {
@@ -194,6 +198,7 @@ export default function WorkTypes() {
         setEmployeeWeekdays([]);
       }
     } else {
+      // Add mode - reset to default values
       setEditingWorkType(null);
       setFormData({
         work_name: '',
@@ -205,7 +210,7 @@ export default function WorkTypes() {
         has_subtasks: false,
         is_auto_driven: false,
         auto_start_on_creation: true,
-        sender_email: null,
+        sender_email: '',
         enable_client_reminders: true,
         client_reminder_start_day: 1,
         client_reminder_end_day: 0,
@@ -235,6 +240,39 @@ export default function WorkTypes() {
   const handleCloseDialog = () => {
     setOpenDialog(false);
     setEditingWorkType(null);
+    setFormData({
+      work_name: '',
+      statutory_form: '',
+      default_frequency: 'MONTHLY',
+      description: '',
+      is_active: true,
+      due_date_day: 20,
+      has_subtasks: false,
+      is_auto_driven: false,
+      auto_start_on_creation: true,
+      sender_email: '',
+      enable_client_reminders: true,
+      client_reminder_start_day: 1,
+      client_reminder_end_day: 0,
+      client_reminder_frequency_type: 'ALTERNATE_DAYS',
+      client_reminder_interval_days: 2,
+      client_reminder_weekdays: '',
+      enable_employee_reminders: true,
+      employee_notification_type: 'BOTH',
+      employee_reminder_start_day: 1,
+      employee_reminder_end_day: 0,
+      employee_reminder_frequency_type: 'DAILY',
+      employee_reminder_interval_days: 1,
+      employee_reminder_weekdays: '',
+      enable_reminders: true,
+      reminder_start_day: 1,
+      reminder_frequency_type: 'ALTERNATE_DAYS',
+      reminder_interval_days: 2,
+      reminder_weekdays: '',
+    });
+    setClientWeekdays([]);
+    setEmployeeWeekdays([]);
+    setReminderTab(0);
   };
 
   const handleOpenSubtaskDialog = async (workType) => {
@@ -360,6 +398,8 @@ export default function WorkTypes() {
       dataToSubmit.reminder_interval_days = dataToSubmit.client_reminder_interval_days;
       dataToSubmit.reminder_weekdays = dataToSubmit.client_reminder_weekdays;
 
+      console.log('Submitting task category:', { editingWorkType, dataToSubmit });
+
       if (editingWorkType) {
         await workTypesAPI.update(editingWorkType.id, dataToSubmit);
         showSnackbar('Task category updated successfully', 'success');
@@ -370,7 +410,8 @@ export default function WorkTypes() {
       handleCloseDialog();
       fetchWorkTypes();
     } catch (error) {
-      showSnackbar(error.response?.data?.detail || 'Operation failed', 'error');
+      console.error('Error submitting task category:', error);
+      showSnackbar(getErrorMessage(error, 'Failed to save task category'), 'error');
     }
   };
 
@@ -406,7 +447,7 @@ export default function WorkTypes() {
       await fetchSubtasks(selectedWorkType.id);
       resetSubtaskForm();
     } catch (error) {
-      showSnackbar(error.response?.data?.detail || 'Operation failed', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to save subtask'), 'error');
     }
   };
 
@@ -424,7 +465,7 @@ export default function WorkTypes() {
           fetchWorkTypes();
         }
       } catch (error) {
-        showSnackbar('Failed to delete subtask', 'error');
+        showSnackbar(getErrorMessage(error, 'Failed to delete subtask'), 'error');
       }
     }
   };
@@ -435,7 +476,7 @@ export default function WorkTypes() {
       showSnackbar('Subtask duplicated successfully', 'success');
       await fetchSubtasks(selectedWorkType.id);
     } catch (error) {
-      showSnackbar('Failed to duplicate subtask', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to duplicate subtask'), 'error');
     }
   };
 
@@ -446,7 +487,7 @@ export default function WorkTypes() {
         showSnackbar('Task category deleted successfully', 'success');
         fetchWorkTypes();
       } catch (error) {
-        showSnackbar('Failed to delete task category', 'error');
+        showSnackbar(getErrorMessage(error, 'Failed to delete task category'), 'error');
       }
     }
   };
@@ -656,7 +697,10 @@ export default function WorkTypes() {
                   type="number"
                   fullWidth
                   value={formDataObj[`${prefix}_reminder_start_day`]}
-                  onChange={(e) => setFormDataObj({ ...formDataObj, [`${prefix}_reminder_start_day`]: parseInt(e.target.value) || 1 })}
+                  onChange={(e) => {
+                    const value = e.target.value === '' ? 1 : parseInt(e.target.value) || 1;
+                    setFormDataObj({ ...formDataObj, [`${prefix}_reminder_start_day`]: value });
+                  }}
                   inputProps={{ min: 1, max: 31 }}
                   helperText="Day of month/period to start reminders"
                 />
@@ -667,7 +711,10 @@ export default function WorkTypes() {
                   type="number"
                   fullWidth
                   value={formDataObj[`${prefix}_reminder_end_day`]}
-                  onChange={(e) => setFormDataObj({ ...formDataObj, [`${prefix}_reminder_end_day`]: parseInt(e.target.value) })}
+                  onChange={(e) => {
+                    const value = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
+                    setFormDataObj({ ...formDataObj, [`${prefix}_reminder_end_day`]: value });
+                  }}
                   inputProps={{ min: -10, max: 31 }}
                   helperText={getEndDayHelperText(formDataObj[`${prefix}_reminder_end_day`])}
                 />
@@ -695,7 +742,10 @@ export default function WorkTypes() {
                 type="number"
                 fullWidth
                 value={intervalDays}
-                onChange={(e) => setFormDataObj({ ...formDataObj, [`${prefix}_reminder_interval_days`]: parseInt(e.target.value) || 1 })}
+                onChange={(e) => {
+                  const value = e.target.value === '' ? 1 : parseInt(e.target.value) || 1;
+                  setFormDataObj({ ...formDataObj, [`${prefix}_reminder_interval_days`]: value });
+                }}
                 inputProps={{ min: 1 }}
                 helperText="Number of days between reminders"
               />
@@ -781,7 +831,7 @@ export default function WorkTypes() {
               <Button
                 variant="contained"
                 startIcon={<AddIcon />}
-                onClick={handleOpenDialog}
+                onClick={() => handleOpenDialog()}
                 sx={{
                   bgcolor: 'white',
                   color: 'primary.main',
@@ -1310,8 +1360,9 @@ export default function WorkTypes() {
       {/* Snackbar */}
       <Snackbar
         open={snackbar.open}
-        autoHideDuration={4000}
+        autoHideDuration={snackbar.severity === 'error' ? 8000 : 4000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert
           onClose={() => setSnackbar({ ...snackbar, open: false })}
