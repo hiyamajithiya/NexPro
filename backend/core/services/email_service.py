@@ -934,9 +934,10 @@ Best Regards,
     @staticmethod
     def render_template(template_str, context):
         """
-        Replace placeholders in template with actual values
+        Replace placeholders in template with actual values.
+
         Supported placeholders: {{client_name}}, {{PAN}}, {{GSTIN}}, {{period_label}},
-        {{due_date}}, {{work_name}}, {{firm_name}}
+        {{due_date}}, {{work_name}}, {{statutory_form}}, {{firm_name}}, {{employee_name}}
         """
         for key, value in context.items():
             placeholder = f"{{{{{key}}}}}"
@@ -945,7 +946,20 @@ Best Regards,
 
     @staticmethod
     def get_context_from_work_instance(work_instance):
-        """Build context dictionary from work instance"""
+        """
+        Build context dictionary from work instance.
+
+        Supported placeholders:
+        - {{client_name}}: Client's name
+        - {{PAN}}: Client's PAN number
+        - {{GSTIN}}: Client's GSTIN number
+        - {{period_label}}: Task period label (e.g., "Apr-2024")
+        - {{due_date}}: Task due date formatted as dd-Mon-YYYY
+        - {{work_name}}: Task category name
+        - {{statutory_form}}: Statutory form name (if applicable)
+        - {{firm_name}}: Organization's firm name (tenant-specific)
+        - {{employee_name}}: Assigned employee's name
+        """
         client = work_instance.client_work.client
         work_type = work_instance.client_work.work_type
         organization = work_instance.organization
@@ -956,6 +970,12 @@ Best Regards,
         if organization and organization.firm_name:
             firm_name = organization.firm_name
 
+        # Get assigned employee name if available
+        employee_name = ''
+        if work_instance.assigned_to:
+            employee = work_instance.assigned_to
+            employee_name = employee.get_full_name() or employee.first_name or employee.email
+
         return {
             'client_name': client.client_name,
             'PAN': client.PAN or 'N/A',
@@ -965,6 +985,7 @@ Best Regards,
             'work_name': work_type.work_name,
             'statutory_form': work_type.statutory_form or '',
             'firm_name': firm_name,
+            'employee_name': employee_name,
         }
 
     @staticmethod
