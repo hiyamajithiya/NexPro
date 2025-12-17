@@ -816,15 +816,19 @@ Best Regards,
                     server.starttls()
 
             # Login and send
+            # Note: We use actual_from_email (tenant's email) as the envelope sender
+            # This ensures the "From" address shown to recipients is the tenant's email,
+            # not the platform's SMTP email. The platform SMTP credentials are used for
+            # authentication, but the sender identity is the tenant's.
             server.login(smtp_config['username'], smtp_config['password'])
-            server.sendmail(smtp_config['from_email'], [to_email], msg.as_string())
+            server.sendmail(actual_from_email, [to_email], msg.as_string())
             server.quit()
 
             # Mark as sent
             if email_log:
                 email_log.mark_sent(message_id=message_id)
 
-            logger.info(f"Email sent via platform SMTP with custom from. Tracking ID: {tracking_id}")
+            logger.info(f"Email sent via platform SMTP with custom from ({actual_from_email}). Tracking ID: {tracking_id}")
             return True, None, tracking_id
         except Exception as e:
             if email_log:

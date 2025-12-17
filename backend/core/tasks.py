@@ -11,21 +11,32 @@ def send_pending_reminders():
     """
     Celery task to send pending reminder emails
     Runs periodically (every 10 minutes as configured in celery.py)
+
+    IMPORTANT: For reminders with frequency (DAILY, WEEKLY, etc.), we only send
+    ONE reminder per task per day, even if multiple reminders are scheduled.
+    This prevents sending multiple emails when catching up on past-due reminders.
     """
     current_time = timezone.now()
+    today = current_time.date()
 
-    # Fetch pending reminders that are due
+    # Fetch pending reminders that are due (scheduled_at <= now)
     pending_reminders = ReminderInstance.objects.filter(
         send_status='PENDING',
         scheduled_at__lte=current_time
     ).select_related(
         'work_instance__client_work__client',
         'work_instance__client_work__work_type',
-        'reminder_rule__email_template'
-    )
+        'reminder_rule__email_template',
+        'organization'
+    ).order_by('scheduled_at')  # Process oldest first
 
     sent_count = 0
     failed_count = 0
+    skipped_count = 0
+
+    # Track which task+recipient combinations we've already sent to today
+    # This prevents sending multiple "catch-up" reminders in one day
+    sent_today = set()
 
     for reminder in pending_reminders:
         work_instance = reminder.work_instance
@@ -34,6 +45,36 @@ def send_pending_reminders():
         if work_instance.status == 'COMPLETED':
             reminder.send_status = 'CANCELLED'
             reminder.save()
+            continue
+
+        # Create a unique key for this task + recipient type combination
+        task_recipient_key = (work_instance.id, reminder.recipient_type, reminder.email_to)
+
+        # Check if we've already sent a reminder for this task+recipient today
+        if task_recipient_key in sent_today:
+            # Skip this reminder - already sent one today for this task
+            # Mark older (past-due) reminders as SKIPPED to avoid re-processing
+            if reminder.scheduled_at.date() < today:
+                reminder.send_status = 'SKIPPED'
+                reminder.save()
+            skipped_count += 1
+            continue
+
+        # Also check database for any reminder sent today for this task+recipient
+        already_sent_today = ReminderInstance.objects.filter(
+            work_instance=work_instance,
+            recipient_type=reminder.recipient_type,
+            email_to=reminder.email_to,
+            send_status='SENT',
+            sent_at__date=today
+        ).exists()
+
+        if already_sent_today:
+            # Already sent today - skip and mark old ones as SKIPPED
+            if reminder.scheduled_at.date() < today:
+                reminder.send_status = 'SKIPPED'
+                reminder.save()
+            skipped_count += 1
             continue
 
         # Send email
@@ -45,16 +86,21 @@ def send_pending_reminders():
             reminder.error_message = None
             sent_count += 1
 
-            # Handle repeating reminders
-            if reminder.reminder_rule.repeat_if_pending:
+            # Mark that we've sent to this task+recipient today
+            sent_today.add(task_recipient_key)
+
+            # Handle repeating reminders (for rule-based reminders with repeat_if_pending)
+            if reminder.reminder_rule and reminder.reminder_rule.repeat_if_pending:
                 if reminder.repeat_count < reminder.reminder_rule.max_repeats:
                     # Create next repeat instance
                     next_scheduled = current_time + timedelta(
                         days=reminder.reminder_rule.repeat_interval
                     )
                     ReminderInstance.objects.create(
+                        organization=reminder.organization,
                         work_instance=work_instance,
                         reminder_rule=reminder.reminder_rule,
+                        recipient_type=reminder.recipient_type,
                         scheduled_at=next_scheduled,
                         email_to=reminder.email_to,
                         send_status='PENDING',
@@ -71,7 +117,8 @@ def send_pending_reminders():
     return {
         'sent': sent_count,
         'failed': failed_count,
-        'total_processed': sent_count + failed_count
+        'skipped': skipped_count,
+        'total_processed': sent_count + failed_count + skipped_count
     }
 
 
