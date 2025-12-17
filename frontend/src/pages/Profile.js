@@ -61,7 +61,7 @@ const getRoleGradient = (role) => {
 };
 
 export default function Profile() {
-  const { user, login } = useAuth();
+  const { user, updateUser } = useAuth();
   const [loading, setLoading] = useState(false);
   const [profileData, setProfileData] = useState({
     first_name: '',
@@ -98,11 +98,8 @@ export default function Profile() {
     setLoading(true);
     try {
       const response = await usersAPI.updateProfile(profileData);
-      // Update user context with new data
-      const updatedUser = { ...user, ...response.data };
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-      // Trigger re-render by calling login with updated user
-      login(localStorage.getItem('access_token'), localStorage.getItem('refresh_token'), updatedUser);
+      // Update user in AuthContext (this also updates localStorage)
+      updateUser(response.data);
       showSnackbar('Profile updated successfully', 'success');
     } catch (error) {
       showSnackbar(getErrorMessage(error, 'Failed to update profile'), 'error');

@@ -72,6 +72,12 @@ export const AuthProvider = ({ children }) => {
     setOrganization(orgData);
   };
 
+  const updateUser = (userData) => {
+    const updatedUser = { ...user, ...userData };
+    localStorage.setItem('user_data', JSON.stringify(updatedUser));
+    setUser(updatedUser);
+  };
+
   const isAdmin = () => user?.role === 'ADMIN';
   const isPartner = () => user?.role === 'PARTNER';
   const isManager = () => user?.role === 'MANAGER';
@@ -97,6 +103,7 @@ export const AuthProvider = ({ children }) => {
     loading,
     login,
     logout,
+    updateUser,
     updateOrganization,
     isAdmin,
     isPartner,
