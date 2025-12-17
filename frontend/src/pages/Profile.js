@@ -28,6 +28,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { usersAPI } from '../services/api';
+import { getErrorMessage } from '../utils/errorUtils';
 
 const getRoleLabel = (role) => {
   const labels = {
@@ -104,7 +105,7 @@ export default function Profile() {
       login(localStorage.getItem('access_token'), localStorage.getItem('refresh_token'), updatedUser);
       showSnackbar('Profile updated successfully', 'success');
     } catch (error) {
-      showSnackbar(error.response?.data?.error || 'Failed to update profile', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to update profile'), 'error');
     } finally {
       setLoading(false);
     }
@@ -134,7 +135,7 @@ export default function Profile() {
         confirm_password: '',
       });
     } catch (error) {
-      showSnackbar(error.response?.data?.error || 'Failed to change password', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to change password'), 'error');
     } finally {
       setLoading(false);
     }
@@ -475,6 +476,7 @@ export default function Profile() {
         open={snackbar.open}
         autoHideDuration={4000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert
           onClose={() => setSnackbar({ ...snackbar, open: false })}

@@ -36,6 +36,7 @@ import {
 } from '@mui/icons-material';
 import { organizationAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { getErrorMessage } from '../utils/errorUtils';
 
 const planColors = {
   FREE: 'default',
@@ -128,7 +129,7 @@ export default function OrganizationSettings() {
         pan: orgResponse.data.pan || '',
       });
     } catch (err) {
-      showSnackbar('Failed to load organization data', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to load organization data'), 'error');
     } finally {
       setLoading(false);
     }
@@ -146,7 +147,7 @@ export default function OrganizationSettings() {
       updateOrganization(response.data);
       showSnackbar('Organization settings updated successfully', 'success');
     } catch (err) {
-      showSnackbar(err.response?.data?.detail || 'Failed to update organization', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to update organization'), 'error');
     } finally {
       setSaving(false);
     }
@@ -183,7 +184,7 @@ export default function OrganizationSettings() {
       const response = await organizationAPI.getUpgradeRequests();
       setUpgradeRequests(response.data.requests || []);
     } catch (error) {
-      showSnackbar(error.response?.data?.error || 'Failed to submit upgrade request', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to submit upgrade request'), 'error');
     } finally {
       setSubmittingUpgrade(false);
     }
@@ -651,6 +652,7 @@ export default function OrganizationSettings() {
         open={snackbar.open}
         autoHideDuration={4000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert
           onClose={() => setSnackbar({ ...snackbar, open: false })}

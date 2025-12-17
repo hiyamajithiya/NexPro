@@ -25,6 +25,7 @@ import {
 } from '@mui/icons-material';
 import { authAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { getErrorMessage } from '../utils/errorUtils';
 
 export default function Login() {
   const { login } = useAuth();
@@ -60,13 +61,14 @@ export default function Login() {
         role: response.data.role,
         first_name: response.data.first_name,
         last_name: response.data.last_name,
+        is_active: response.data.is_active,
         is_platform_admin: response.data.is_platform_admin,
       };
       // Extract organization data
       const orgData = response.data.organization || null;
       login(userData, { access: response.data.access, refresh: response.data.refresh }, orgData);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Login failed. Please check your credentials.');
+      setError(getErrorMessage(err, 'Login failed. Please check your credentials.'));
     } finally {
       setLoading(false);
     }

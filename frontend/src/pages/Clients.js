@@ -35,6 +35,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { format } from 'date-fns';
 import { clientsAPI, workTypesAPI } from '../services/api';
+import { getErrorMessage } from '../utils/errorUtils';
 import { WorkOutline as WorkIcon } from '@mui/icons-material';
 
 export default function Clients() {
@@ -63,6 +64,7 @@ export default function Clients() {
   const [selectedClient, setSelectedClient] = useState(null);
   const [workTypes, setWorkTypes] = useState([]);
   const [selectedWorkTypes, setSelectedWorkTypes] = useState([]);
+  const [assignedWorkTypes, setAssignedWorkTypes] = useState([]);
   const [startFromPeriod, setStartFromPeriod] = useState('');
 
   // Bulk Upload State
@@ -91,7 +93,7 @@ export default function Clients() {
       // Ensure clients is always an array
       setClients(Array.isArray(data) ? data : (data.results || []));
     } catch (error) {
-      showSnackbar('Failed to fetch clients', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to fetch clients'), 'error');
       setClients([]); // Set empty array on error
     } finally {
       setLoading(false);
@@ -258,7 +260,7 @@ export default function Clients() {
       handleCloseDialog();
       fetchClients();
     } catch (error) {
-      showSnackbar(error.response?.data?.detail || 'Operation failed', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to save client'), 'error');
     }
   };
 
@@ -269,15 +271,25 @@ export default function Clients() {
         showSnackbar('Client deleted successfully', 'success');
         fetchClients();
       } catch (error) {
-        showSnackbar('Failed to delete client', 'error');
+        showSnackbar(getErrorMessage(error, 'Failed to delete client'), 'error');
       }
     }
   };
 
-  const handleOpenWorkTypeDialog = (client) => {
+  const handleOpenWorkTypeDialog = async (client) => {
     setSelectedClient(client);
     setSelectedWorkTypes([]);
     setStartFromPeriod('');
+    setAssignedWorkTypes([]);
+
+    // Fetch assigned work types for this client
+    try {
+      const response = await clientsAPI.getWorks(client.id);
+      setAssignedWorkTypes(response.data);
+    } catch (error) {
+      console.error('Error fetching assigned work types:', error);
+    }
+
     setOpenWorkTypeDialog(true);
   };
 
@@ -285,7 +297,26 @@ export default function Clients() {
     setOpenWorkTypeDialog(false);
     setSelectedClient(null);
     setSelectedWorkTypes([]);
+    setAssignedWorkTypes([]);
     setStartFromPeriod('');
+  };
+
+  const handleUnassignWorkType = async (workTypeId, workTypeName) => {
+    if (!window.confirm(`Are you sure you want to unassign "${workTypeName}" from this client?`)) {
+      return;
+    }
+
+    try {
+      const response = await clientsAPI.unassignWorkType(selectedClient.id, workTypeId);
+      showSnackbar(response.data.message, 'success');
+
+      // Refresh assigned work types
+      const worksResponse = await clientsAPI.getWorks(selectedClient.id);
+      setAssignedWorkTypes(worksResponse.data);
+    } catch (error) {
+      console.error('Error unassigning work type:', error);
+      showSnackbar(getErrorMessage(error, 'Failed to unassign task category'), 'error');
+    }
   };
 
   const handleAssignWorkTypes = async () => {
@@ -302,6 +333,10 @@ export default function Clients() {
     }
 
     try {
+      console.log('[ASSIGN WORK TYPES] Client ID:', selectedClient.id);
+      console.log('[ASSIGN WORK TYPES] Work Type IDs:', selectedWorkTypes);
+      console.log('[ASSIGN WORK TYPES] Start From Period:', startFromPeriod);
+
       const response = await clientsAPI.assignWorkTypes(selectedClient.id, {
         work_type_ids: selectedWorkTypes,
         start_from_period: startFromPeriod,
@@ -322,12 +357,14 @@ export default function Clients() {
         }, 2000);
       }
 
-      handleCloseWorkTypeDialog();
+      // Refresh assigned work types
+      const worksResponse = await clientsAPI.getWorks(selectedClient.id);
+      setAssignedWorkTypes(worksResponse.data);
+      setSelectedWorkTypes([]);
+      setStartFromPeriod('');
     } catch (error) {
-      showSnackbar(
-        error.response?.data?.error || 'Failed to assign task categories',
-        'error'
-      );
+      console.error('[ASSIGN WORK TYPES] Error:', error);
+      showSnackbar(getErrorMessage(error, 'Failed to assign task categories'), 'error');
     }
   };
 
@@ -348,7 +385,7 @@ export default function Clients() {
       link.remove();
       showSnackbar('Template downloaded successfully', 'success');
     } catch (error) {
-      showSnackbar('Failed to download template', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to download template'), 'error');
     }
   };
 
@@ -391,10 +428,7 @@ export default function Clients() {
       setUploadDialogOpen(false);
       setSelectedFile(null);
     } catch (error) {
-      showSnackbar(
-        error.response?.data?.error || 'Failed to upload clients',
-        'error'
-      );
+      showSnackbar(getErrorMessage(error, 'Failed to upload clients'), 'error');
     } finally {
       setUploadingFile(false);
     }
@@ -687,47 +721,81 @@ export default function Clients() {
             Assign Task Categories to {selectedClient?.client_name}
           </DialogTitle>
           <DialogContent>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-              <Alert severity="info">
-                Select task categories to assign to this client. Tasks will be automatically created for each selected category.
-              </Alert>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 2 }}>
+              {/* Show Currently Assigned Task Categories */}
+              {assignedWorkTypes.length > 0 && (
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                    Currently Assigned Task Categories ({assignedWorkTypes.length})
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {assignedWorkTypes.map((mapping) => (
+                      <Chip
+                        key={mapping.id}
+                        label={`${mapping.work_type.work_name}${mapping.work_type.statutory_form ? ` (${mapping.work_type.statutory_form})` : ''}`}
+                        onDelete={() => handleUnassignWorkType(mapping.work_type.id, mapping.work_type.work_name)}
+                        color={mapping.active ? 'success' : 'default'}
+                        variant="outlined"
+                        sx={{ fontWeight: 500 }}
+                      />
+                    ))}
+                  </Box>
+                  {assignedWorkTypes.some(m => !m.active) && (
+                    <Alert severity="info" sx={{ mt: 1 }}>
+                      Grayed out categories are inactive but have existing tasks.
+                    </Alert>
+                  )}
+                </Box>
+              )}
 
-              <Autocomplete
-                multiple
-                options={workTypes}
-                getOptionLabel={(option) => `${option.work_name} (${option.statutory_form || 'N/A'})`}
-                value={workTypes.filter(wt => selectedWorkTypes.includes(wt.id))}
-                onChange={(event, newValue) => {
-                  setSelectedWorkTypes(newValue.map(wt => wt.id));
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Select Task Categories"
-                    placeholder="Choose task categories"
-                    required
-                  />
-                )}
-                renderTags={(value, getTagProps) =>
-                  value.map((option, index) => (
-                    <Chip
-                      label={option.work_name}
-                      {...getTagProps({ index })}
-                      color="primary"
-                      size="small"
+              {/* Assign New Task Categories */}
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                  Assign New Task Categories
+                </Typography>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Select task categories to assign to this client. Tasks will be automatically created for each selected category.
+                </Alert>
+
+                <Autocomplete
+                  multiple
+                  options={workTypes.filter(wt => !assignedWorkTypes.some(awt => awt.work_type.id === wt.id))}
+                  getOptionLabel={(option) => `${option.work_name} (${option.statutory_form || 'N/A'})`}
+                  value={workTypes.filter(wt => selectedWorkTypes.includes(wt.id))}
+                  onChange={(event, newValue) => {
+                    setSelectedWorkTypes(newValue.map(wt => wt.id));
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Select Task Categories"
+                      placeholder="Choose task categories"
                     />
-                  ))
-                }
-              />
+                  )}
+                  renderTags={(value, getTagProps) =>
+                    value.map((option, index) => (
+                      <Chip
+                        label={option.work_name}
+                        {...getTagProps({ index })}
+                        color="primary"
+                        size="small"
+                      />
+                    ))
+                  }
+                />
+              </Box>
 
               <TextField
-                label="Start From Period"
+                label="Start From Date"
+                type="date"
                 fullWidth
                 required
                 value={startFromPeriod}
                 onChange={(e) => setStartFromPeriod(e.target.value)}
-                placeholder="e.g., Apr 2025, FY 2025-26, Q1 2025-26"
-                helperText="Enter the period from which tasks should be generated"
+                InputLabelProps={{
+                  shrink: true,
+                }}
+                helperText="Select the date from which tasks should be generated"
               />
 
               {selectedWorkTypes.length > 0 && (
@@ -738,14 +806,16 @@ export default function Clients() {
             </Box>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleCloseWorkTypeDialog}>Cancel</Button>
-            <Button
-              onClick={handleAssignWorkTypes}
-              variant="contained"
-              disabled={selectedWorkTypes.length === 0 || !startFromPeriod}
-            >
-              Assign Task Categories
-            </Button>
+            <Button onClick={handleCloseWorkTypeDialog}>Close</Button>
+            {selectedWorkTypes.length > 0 && (
+              <Button
+                onClick={handleAssignWorkTypes}
+                variant="contained"
+                disabled={!startFromPeriod}
+              >
+                Assign {selectedWorkTypes.length} Task {selectedWorkTypes.length === 1 ? 'Category' : 'Categories'}
+              </Button>
+            )}
           </DialogActions>
         </Dialog>
 
@@ -818,8 +888,9 @@ export default function Clients() {
         {/* Snackbar */}
         <Snackbar
           open={snackbar.open}
-          autoHideDuration={4000}
+          autoHideDuration={snackbar.severity === 'error' ? 8000 : 4000}
           onClose={() => setSnackbar({ ...snackbar, open: false })}
+          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
         >
           <Alert
             onClose={() => setSnackbar({ ...snackbar, open: false })}

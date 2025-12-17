@@ -65,9 +65,17 @@ class TenantMiddleware:
         set_current_user(None)
 
         # Set organization from authenticated user
+        # Note: For DRF API views, organization is set in TenantViewSetMixin.initial()
+        # This middleware is mainly for Django admin and non-API views
         if hasattr(request, 'user') and request.user.is_authenticated:
             user = request.user
-            organization = getattr(user, 'organization', None)
+
+            # Get organization from user
+            # The custom JWT authentication loads it with select_related
+            try:
+                organization = user.organization if user.organization_id else None
+            except AttributeError:
+                organization = None
 
             set_current_user(user)
             set_current_organization(organization)

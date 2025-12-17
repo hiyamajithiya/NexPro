@@ -39,6 +39,7 @@ import {
   Badge as BadgeIcon,
 } from '@mui/icons-material';
 import { usersAPI, workTypesAPI, workTypeAssignmentsAPI } from '../services/api';
+import { getErrorMessage } from '../utils/errorUtils';
 
 const getRoleChip = (role) => {
   const roleConfig = {
@@ -99,7 +100,7 @@ export default function Employees() {
       const data = response.data;
       setEmployees(Array.isArray(data) ? data : (data.results || []));
     } catch (error) {
-      showSnackbar('Failed to fetch employees', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to fetch employees'), 'error');
       setEmployees([]);
     } finally {
       setLoading(false);
@@ -179,6 +180,13 @@ export default function Employees() {
         delete submitData.password;
       }
 
+      // Convert empty strings to null for optional fields
+      // This prevents validation errors for date and number fields
+      if (!submitData.joining_date) submitData.joining_date = null;
+      if (!submitData.salary) submitData.salary = null;
+      if (!submitData.pan) submitData.pan = null;
+      if (!submitData.aadhar) submitData.aadhar = null;
+
       // Validate required fields (email is used as username)
       if (!submitData.email) {
         showSnackbar('Email is required', 'error');
@@ -216,7 +224,7 @@ export default function Employees() {
       handleCloseDialog();
       fetchEmployees();
     } catch (error) {
-      showSnackbar(error.response?.data?.detail || 'Operation failed', 'error');
+      showSnackbar(getErrorMessage(error, 'Failed to save employee'), 'error');
     }
   };
 
@@ -227,7 +235,7 @@ export default function Employees() {
         showSnackbar('Employee deleted successfully', 'success');
         fetchEmployees();
       } catch (error) {
-        showSnackbar('Failed to delete employee', 'error');
+        showSnackbar(getErrorMessage(error, 'Failed to delete employee'), 'error');
       }
     }
   };
@@ -571,23 +579,49 @@ export default function Employees() {
             </Box>
           </Paper>
         </DialogContent>
-        <DialogActions sx={{ p: 2, bgcolor: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
+        <DialogActions sx={{ p: 2, bgcolor: '#f8fafc', borderTop: '1px solid #e2e8f0', justifyContent: 'space-between' }}>
           <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button
-            onClick={handleSubmit}
-            variant="contained"
-            disabled={!formData.email || assignmentLoading}
-          >
-            {assignmentLoading ? <CircularProgress size={20} /> : (editingEmployee ? 'Update' : 'Create')}
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            {/* Show Back button on tabs 1 and 2 */}
+            {dialogTab > 0 && (
+              <Button
+                onClick={() => setDialogTab(dialogTab - 1)}
+                variant="outlined"
+              >
+                Back
+              </Button>
+            )}
+            {/* Show Next button on tabs 0 and 1 */}
+            {dialogTab < 2 && (
+              <Button
+                onClick={() => setDialogTab(dialogTab + 1)}
+                variant="contained"
+                disabled={dialogTab === 0 && !formData.email}
+              >
+                Next
+              </Button>
+            )}
+            {/* Show Create/Update button only on tab 2 (last tab) */}
+            {dialogTab === 2 && (
+              <Button
+                onClick={handleSubmit}
+                variant="contained"
+                color="success"
+                disabled={!formData.email || assignmentLoading}
+              >
+                {assignmentLoading ? <CircularProgress size={20} /> : (editingEmployee ? 'Update' : 'Create')}
+              </Button>
+            )}
+          </Box>
         </DialogActions>
       </Dialog>
 
-      {/* Snackbar */}
+      {/* Snackbar - positioned at top right */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert
           onClose={() => setSnackbar({ ...snackbar, open: false })}
