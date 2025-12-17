@@ -86,6 +86,103 @@ def mark_overdue_tasks():
 
 
 @shared_task
+def auto_start_tasks():
+    """
+    Celery task to auto-start tasks on their reminder start day.
+    Runs daily at 6:00 AM as configured in celery.py.
+
+    For auto-driven task categories, it will:
+    1. Find all NOT_STARTED tasks where today >= reminder start day
+    2. Change their status to STARTED
+    3. Set the started_on date
+
+    Returns:
+        dict: Statistics about the auto-start operation
+    """
+    import logging
+    from datetime import date
+
+    logger = logging.getLogger(__name__)
+    today = date.today()
+
+    logger.info(f"Starting auto-start tasks processing for {today}")
+
+    # Find all NOT_STARTED tasks for auto-driven work types
+    not_started_tasks = WorkInstance.objects.filter(
+        status='NOT_STARTED',
+        client_work__work_type__is_auto_driven=True,
+        client_work__work_type__auto_start_on_creation=True,
+        client_work__work_type__is_active=True
+    ).select_related(
+        'client_work__client',
+        'client_work__work_type',
+        'organization'
+    )
+
+    total_started = 0
+    total_skipped = 0
+    total_errors = 0
+
+    for task in not_started_tasks:
+        try:
+            work_type = task.client_work.work_type
+            client = task.client_work.client
+
+            # Get reminder start day from work type configuration
+            reminder_start_day = work_type.client_reminder_start_day if work_type.enable_client_reminders else 1
+
+            # Calculate the reminder start date for this task's period
+            period_start = task.period_start
+            if not period_start:
+                logger.warning(
+                    f"Skipping task {task.id} ({client.client_name} - {task.period_label}): "
+                    f"No period_start date"
+                )
+                total_skipped += 1
+                continue
+
+            try:
+                # Handle months with fewer days
+                reminder_start_date = period_start.replace(day=min(reminder_start_day, 28))
+            except ValueError:
+                reminder_start_date = period_start.replace(day=28)
+
+            # Check if today is on or after the reminder start date
+            if today >= reminder_start_date:
+                # Update task status to STARTED
+                task.status = 'STARTED'
+                task.started_on = today
+                task.save(update_fields=['status', 'started_on'])
+
+                logger.info(
+                    f"Auto-started task: {client.client_name} - {work_type.work_name} - "
+                    f"{task.period_label} (Reminder start: {reminder_start_date})"
+                )
+                total_started += 1
+            else:
+                days_until = (reminder_start_date - today).days
+                logger.debug(
+                    f"Task pending: {client.client_name} - {work_type.work_name} - "
+                    f"{task.period_label} starts in {days_until} days"
+                )
+                total_skipped += 1
+
+        except Exception as e:
+            total_errors += 1
+            logger.error(f"Error auto-starting task {task.id}: {str(e)}", exc_info=True)
+
+    result = {
+        'total_started': total_started,
+        'total_skipped': total_skipped,
+        'total_errors': total_errors,
+        'date': str(today)
+    }
+
+    logger.info(f"Auto-start tasks completed: {result}")
+    return result
+
+
+@shared_task
 def test_email_task(email_to):
     """
     Test task to verify email configuration

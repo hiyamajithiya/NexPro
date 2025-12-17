@@ -20,6 +20,10 @@ app.conf.beat_schedule = {
         'task': 'core.tasks.send_pending_reminders',
         'schedule': crontab(minute='*/10'),  # Run every 10 minutes
     },
+    'auto-start-tasks-daily': {
+        'task': 'core.tasks.auto_start_tasks',
+        'schedule': crontab(hour=6, minute=0),  # Run daily at 6:00 AM
+    },
     'mark-overdue-tasks-daily': {
         'task': 'core.tasks.mark_overdue_tasks',
         'schedule': crontab(hour=0, minute=30),  # Run daily at 12:30 AM
