@@ -127,7 +127,7 @@ export default function Layout() {
   const [templateAlertDismissed, setTemplateAlertDismissed] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout, isPlatformAdmin } = useAuth();
+  const { user, organization, logout, isPlatformAdmin } = useAuth();
 
   // Filter menu items based on user role
   const menuItems = allMenuItems.filter(item => {
@@ -240,27 +240,58 @@ export default function Layout() {
     navigate('/login');
   };
 
+  // Get display name for the organization
+  const orgDisplayName = organization?.name || organization?.firm_name || 'NexPro';
+  const orgInitial = orgDisplayName.charAt(0).toUpperCase();
+
   const drawer = (
     <Box sx={{ height: '100%', background: 'linear-gradient(180deg, #667eea 0%, #764ba2 100%)' }}>
       <Toolbar sx={{ background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, overflow: 'hidden' }}>
+          {organization?.logo ? (
+            <Box
+              component="img"
+              src={organization.logo}
+              alt={orgDisplayName}
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                objectFit: 'cover',
+                background: 'white',
+              }}
+            />
+          ) : (
+            <Box
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                background: 'white',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'primary.main',
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+            >
+              {orgInitial}
+            </Box>
+          )}
+          <Typography
+            variant="h6"
+            noWrap
+            component="div"
             sx={{
-              width: 40,
-              height: 40,
-              borderRadius: '50%',
-              background: 'white',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'primary.main',
+              color: 'white',
               fontWeight: 700,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
+            title={orgDisplayName}
           >
-            N
-          </Box>
-          <Typography variant="h6" noWrap component="div" sx={{ color: 'white', fontWeight: 700 }}>
-            NexPro
+            {orgDisplayName}
           </Typography>
         </Box>
       </Toolbar>
