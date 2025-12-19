@@ -136,7 +136,7 @@ class Command(BaseCommand):
                     total_skipped += 1
                     continue
 
-                # Create or get reminder instance for today
+                # Create or get reminder instance for today (scheduled at 11:00 AM IST)
                 reminder, created = ReminderInstance.objects.get_or_create(
                     work_instance=task,
                     recipient_type='CLIENT',
@@ -144,7 +144,7 @@ class Command(BaseCommand):
                     defaults={
                         'organization': task.organization,
                         'scheduled_at': timezone.make_aware(
-                            datetime.combine(today, datetime.min.time().replace(hour=9))
+                            datetime.combine(today, datetime.min.time().replace(hour=11))
                         ),
                         'email_to': client_email,
                         'send_status': 'PENDING',
