@@ -256,8 +256,8 @@ class TaskAutomationService:
         """
         Calculate the next period label and due date based on frequency.
 
-        IMPORTANT: For MONTHLY tasks, due date is within the SAME month as the period.
-        Example: "Jan 2025" period has due date Jan 20, 2025 (not Feb 20, 2025).
+        IMPORTANT: For MONTHLY compliance tasks, the period is the month BEFORE the due date month.
+        Example: "Nov 2025" period has due date Dec 20, 2025 (GST for Nov filed in Dec).
 
         Returns: (period_label, period_start, period_end, due_date)
         """
@@ -271,17 +271,24 @@ class TaskAutomationService:
                 from datetime import datetime
                 try:
                     current_period_date = datetime.strptime(current_period_label, '%b %Y').date()
+                    # Next period is one month after current period
                     next_start = (current_period_date + relativedelta(months=1)).replace(day=1)
                 except ValueError:
-                    next_start = (today + relativedelta(months=1)).replace(day=1)
+                    next_start = today.replace(day=1)
             else:
-                next_start = today.replace(day=1)
+                # First period - use previous month as the period
+                next_start = (today - relativedelta(months=1)).replace(day=1)
 
-            # Due date is within the SAME month
-            last_day = calendar.monthrange(next_start.year, next_start.month)[1]
-            period_end = next_start.replace(day=last_day)
-            next_due = next_start.replace(day=min(due_date_day, last_day))
-            period_label = next_start.strftime('%b %Y')  # e.g., "Jan 2025"
+            # Period dates (period_start = next_start which is the period month)
+            last_day_period = calendar.monthrange(next_start.year, next_start.month)[1]
+            period_end = next_start.replace(day=last_day_period)
+            period_label = next_start.strftime('%b %Y')  # e.g., "Nov 2025"
+
+            # Due date is in the NEXT month after the period
+            # e.g., Period "Nov 2025" → Due date "Dec 20, 2025"
+            due_date_month = next_start + relativedelta(months=1)
+            last_day_due = calendar.monthrange(due_date_month.year, due_date_month.month)[1]
+            next_due = due_date_month.replace(day=min(due_date_day, last_day_due))
 
         elif frequency == 'QUARTERLY':
             if current_period_label:
@@ -356,12 +363,13 @@ class TaskAutomationService:
         Calculate period label and due date based on a specific start date.
         Used when creating the first task from a user-specified start date.
 
-        IMPORTANT: For MONTHLY tasks, the due date is within the SAME month as the period.
-        Example: If period is "Dec 2025" and due_date_day is 20, due date is Dec 20, 2025.
+        IMPORTANT: For MONTHLY compliance tasks (like GST), the period is the PREVIOUS month.
+        Example: User selects Dec 1, 2025 → Period is "Nov 2025", Due date is Dec 20, 2025
+        This is because GST for November is filed in December.
 
         Args:
             frequency: Task frequency (MONTHLY, QUARTERLY, YEARLY)
-            start_date: The date to calculate the period from (date object or string)
+            start_date: The date from which task work begins (date object or string)
             due_date_day: Day of month for due date
 
         Returns: (period_label, period_start, period_end, due_date)
@@ -374,14 +382,24 @@ class TaskAutomationService:
             start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
 
         if frequency == 'MONTHLY':
-            # For monthly, the period is the month containing start_date
-            # Due date is within the SAME month (e.g., Dec 2025 period -> Dec 20, 2025 due date)
-            period_start = start_date.replace(day=1)
-            last_day = calendar.monthrange(period_start.year, period_start.month)[1]
-            period_end = period_start.replace(day=last_day)
-            due_day = min(due_date_day, last_day)
-            due_date = period_start.replace(day=due_day)
-            period_label = period_start.strftime('%b %Y')
+            # For monthly compliance tasks, the period is the PREVIOUS month
+            # Example: User selects Dec 1, 2025
+            #   - Period: Nov 2025 (Nov 1 - Nov 30)
+            #   - Due Date: Dec 20, 2025 (due_date_day of start_date month)
+            #   - Reminders: Dec 13-20, 2025 (in the start_date month)
+
+            # Period is previous month
+            period_date = start_date - relativedelta(months=1)
+            period_start = period_date.replace(day=1)
+            last_day_period = calendar.monthrange(period_start.year, period_start.month)[1]
+            period_end = period_start.replace(day=last_day_period)
+            period_label = period_start.strftime('%b %Y')  # e.g., "Nov 2025"
+
+            # Due date is in the start_date month (the month user selected)
+            due_month_start = start_date.replace(day=1)
+            last_day_due = calendar.monthrange(due_month_start.year, due_month_start.month)[1]
+            due_day = min(due_date_day, last_day_due)
+            due_date = due_month_start.replace(day=due_day)  # e.g., Dec 20, 2025
 
         elif frequency == 'QUARTERLY':
             # Determine which quarter the start_date falls into
