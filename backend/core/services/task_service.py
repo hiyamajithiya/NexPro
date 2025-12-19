@@ -254,52 +254,93 @@ class TaskAutomationService:
     @staticmethod
     def calculate_next_period_and_due_date(frequency, current_period_label=None, current_due_date=None, due_date_day=20):
         """
-        Calculate the next period label and due date based on frequency
+        Calculate the next period label and due date based on frequency.
+
+        IMPORTANT: For MONTHLY tasks, due date is within the SAME month as the period.
+        Example: "Jan 2025" period has due date Jan 20, 2025 (not Feb 20, 2025).
+
         Returns: (period_label, period_start, period_end, due_date)
         """
+        import calendar
+
         today = timezone.now().date()
 
         if frequency == 'MONTHLY':
-            if current_due_date:
-                next_start = current_due_date + timedelta(days=1)
-                next_month = next_start + relativedelta(months=1)
-                next_due = next_month.replace(day=min(due_date_day, 28))  # Use configured due date day
+            if current_period_label:
+                # Parse current period and move to next month
+                from datetime import datetime
+                try:
+                    current_period_date = datetime.strptime(current_period_label, '%b %Y').date()
+                    next_start = (current_period_date + relativedelta(months=1)).replace(day=1)
+                except ValueError:
+                    next_start = (today + relativedelta(months=1)).replace(day=1)
             else:
                 next_start = today.replace(day=1)
-                next_due = (next_start + relativedelta(months=1)).replace(day=min(due_date_day, 28))
 
-            period_label = next_start.strftime('%b %Y')  # e.g., "Apr 2025"
-            period_end = (next_start + relativedelta(months=1)) - timedelta(days=1)
+            # Due date is within the SAME month
+            last_day = calendar.monthrange(next_start.year, next_start.month)[1]
+            period_end = next_start.replace(day=last_day)
+            next_due = next_start.replace(day=min(due_date_day, last_day))
+            period_label = next_start.strftime('%b %Y')  # e.g., "Jan 2025"
 
         elif frequency == 'QUARTERLY':
-            if current_due_date:
-                next_start = current_due_date + timedelta(days=1)
-                next_quarter = next_start + relativedelta(months=3)
-                next_due = next_quarter.replace(day=min(due_date_day, 28))
+            if current_period_label:
+                # Parse current quarter and move to next
+                import re
+                match = re.match(r'Q(\d) (\d{4})', current_period_label)
+                if match:
+                    quarter = int(match.group(1))
+                    year = int(match.group(2))
+                    # Move to next quarter
+                    quarter += 1
+                    if quarter > 4:
+                        quarter = 1
+                        year += 1
+                    quarter_start_month = (quarter - 1) * 3 + 1
+                    next_start = today.replace(year=year, month=quarter_start_month, day=1)
+                else:
+                    current_month = today.month
+                    quarter_start_month = ((current_month - 1) // 3) * 3 + 1
+                    next_start = today.replace(month=quarter_start_month, day=1)
             else:
                 # Determine current quarter
                 current_month = today.month
                 quarter_start_month = ((current_month - 1) // 3) * 3 + 1
                 next_start = today.replace(month=quarter_start_month, day=1)
-                next_due = (next_start + relativedelta(months=3)).replace(day=min(due_date_day, 28))
+
+            quarter_end_month = ((next_start.month - 1) // 3) * 3 + 3
+            last_day = calendar.monthrange(next_start.year, quarter_end_month)[1]
+            period_end = next_start.replace(month=quarter_end_month, day=last_day)
+
+            # Due date is in the month after the quarter ends
+            due_month = quarter_end_month + 1
+            due_year = next_start.year
+            if due_month > 12:
+                due_month = 1
+                due_year += 1
+            next_due = today.replace(year=due_year, month=due_month, day=min(due_date_day, calendar.monthrange(due_year, due_month)[1]))
 
             quarter_num = ((next_start.month - 1) // 3) + 1
             period_label = f"Q{quarter_num} {next_start.year}"
-            period_end = (next_start + relativedelta(months=3)) - timedelta(days=1)
 
         elif frequency == 'YEARLY':
-            if current_due_date:
-                next_start = current_due_date + timedelta(days=1)
-                next_year = next_start + relativedelta(years=1)
-                next_due = next_year.replace(month=7, day=31)  # Example: July 31st
+            if current_period_label:
+                # Parse current FY and move to next
+                import re
+                match = re.match(r'FY (\d{4})-(\d{2})', current_period_label)
+                if match:
+                    fy_start_year = int(match.group(1)) + 1
+                else:
+                    fy_start_year = today.year if today.month >= 4 else today.year - 1
             else:
-                next_start = today.replace(month=4, day=1)  # Financial year starts April
-                next_due = (next_start + relativedelta(years=1)).replace(month=7, day=31)
+                fy_start_year = today.year if today.month >= 4 else today.year - 1
 
-            fy_start_year = next_start.year if next_start.month >= 4 else next_start.year - 1
+            next_start = today.replace(year=fy_start_year, month=4, day=1)
             fy_end_year = fy_start_year + 1
+            period_end = today.replace(year=fy_end_year, month=3, day=31)
+            # Due date is typically in July of next year
+            next_due = today.replace(year=fy_end_year, month=7, day=min(due_date_day, 31))
             period_label = f"FY {fy_start_year}-{str(fy_end_year)[2:]}"
-            period_end = next_start.replace(year=fy_end_year, month=3, day=31)
 
         else:  # ONE_TIME
             next_start = today
@@ -315,6 +356,9 @@ class TaskAutomationService:
         Calculate period label and due date based on a specific start date.
         Used when creating the first task from a user-specified start date.
 
+        IMPORTANT: For MONTHLY tasks, the due date is within the SAME month as the period.
+        Example: If period is "Dec 2025" and due_date_day is 20, due date is Dec 20, 2025.
+
         Args:
             frequency: Task frequency (MONTHLY, QUARTERLY, YEARLY)
             start_date: The date to calculate the period from (date object or string)
@@ -323,6 +367,7 @@ class TaskAutomationService:
         Returns: (period_label, period_start, period_end, due_date)
         """
         from datetime import datetime
+        import calendar
 
         # Convert string to date if needed
         if isinstance(start_date, str):
@@ -330,18 +375,32 @@ class TaskAutomationService:
 
         if frequency == 'MONTHLY':
             # For monthly, the period is the month containing start_date
+            # Due date is within the SAME month (e.g., Dec 2025 period -> Dec 20, 2025 due date)
             period_start = start_date.replace(day=1)
-            period_end = (period_start + relativedelta(months=1)) - timedelta(days=1)
-            due_date = (period_start + relativedelta(months=1)).replace(day=min(due_date_day, 28))
+            last_day = calendar.monthrange(period_start.year, period_start.month)[1]
+            period_end = period_start.replace(day=last_day)
+            due_day = min(due_date_day, last_day)
+            due_date = period_start.replace(day=due_day)
             period_label = period_start.strftime('%b %Y')
 
         elif frequency == 'QUARTERLY':
             # Determine which quarter the start_date falls into
+            # Q1: Jan-Mar, Q2: Apr-Jun, Q3: Jul-Sep, Q4: Oct-Dec
             quarter = (start_date.month - 1) // 3 + 1
             quarter_start_month = (quarter - 1) * 3 + 1
             period_start = start_date.replace(month=quarter_start_month, day=1)
-            period_end = (period_start + relativedelta(months=3)) - timedelta(days=1)
-            due_date = (period_start + relativedelta(months=3)).replace(day=min(due_date_day, 28))
+            quarter_end_month = quarter_start_month + 2
+            last_day = calendar.monthrange(period_start.year, quarter_end_month)[1]
+            period_end = period_start.replace(month=quarter_end_month, day=last_day)
+
+            # Due date is in the month after the quarter ends
+            due_month = quarter_end_month + 1
+            due_year = period_start.year
+            if due_month > 12:
+                due_month = 1
+                due_year += 1
+            due_day = min(due_date_day, calendar.monthrange(due_year, due_month)[1])
+            due_date = datetime(due_year, due_month, due_day).date()
             period_label = f"Q{quarter} {period_start.year}"
 
         elif frequency == 'YEARLY':
@@ -353,14 +412,17 @@ class TaskAutomationService:
 
             period_start = datetime(fy_start_year, 4, 1).date()
             period_end = datetime(fy_start_year + 1, 3, 31).date()
-            due_date = datetime(fy_start_year + 1, 4, min(due_date_day, 30)).date()
+            # Due date is typically in July of next year for yearly returns
+            due_date = datetime(fy_start_year + 1, 7, min(due_date_day, 31)).date()
             period_label = f"FY {fy_start_year}-{str(fy_start_year + 1)[-2:]}"
 
         else:
-            # Default: treat as current period
+            # Default (ONE_TIME): treat as current period
             period_start = start_date.replace(day=1)
-            period_end = (period_start + relativedelta(months=1)) - timedelta(days=1)
-            due_date = (period_start + relativedelta(months=1)).replace(day=min(due_date_day, 28))
+            last_day = calendar.monthrange(period_start.year, period_start.month)[1]
+            period_end = period_start.replace(day=last_day)
+            due_day = min(due_date_day, last_day)
+            due_date = period_start.replace(day=due_day)
             period_label = period_start.strftime('%b %Y')
 
         return period_label, period_start, period_end, due_date
