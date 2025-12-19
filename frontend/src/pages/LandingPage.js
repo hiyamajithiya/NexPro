@@ -67,9 +67,9 @@ const features = [
     color: '#f59e0b',
   },
   {
-    icon: <CalendarMonth sx={{ fontSize: 40 }} />,
-    title: 'Smart Calendar',
-    description: 'Visual calendar view of all tasks, deadlines, and reminders. Drag-and-drop scheduling.',
+    icon: <Speed sx={{ fontSize: 40 }} />,
+    title: 'Auto-Driven Tasks',
+    description: 'Fully automated task workflows for compliance work like GST returns. Tasks auto-start and send reminders without manual intervention.',
     color: '#ec4899',
   },
   {
@@ -81,14 +81,14 @@ const features = [
   {
     icon: <Assessment sx={{ fontSize: 40 }} />,
     title: 'Detailed Reports',
-    description: 'Generate comprehensive reports on tasks, clients, and team performance. Export to PDF/Excel.',
+    description: 'Generate comprehensive reports on tasks, clients, and team performance. Export to PDF and Excel formats.',
     color: '#8b5cf6',
   },
 ];
 
 const additionalFeatures = [
   { icon: <WorkOutline />, text: 'Work Type Templates' },
-  { icon: <Timer />, text: 'Time Tracking' },
+  { icon: <CalendarMonth />, text: 'Calendar View' },
   { icon: <Groups />, text: 'Team Management' },
   { icon: <Notifications />, text: 'Smart Notifications' },
   { icon: <Description />, text: 'Document Storage' },
@@ -579,10 +579,10 @@ export default function LandingPage() {
 
               {[
                 'Compliant with IT Act 2000 & DPDP Act 2023',
-                'Bank-grade security with end-to-end encryption',
+                'Secure authentication with encrypted passwords',
                 'Multi-tenant architecture for data isolation',
-                'Automatic backups and 99.9% uptime guarantee',
-                'Dedicated support team available 24/7',
+                'Auto-driven workflows for compliance tasks',
+                'Customizable email templates and reminders',
               ].map((item, index) => (
                 <Box
                   key={index}
