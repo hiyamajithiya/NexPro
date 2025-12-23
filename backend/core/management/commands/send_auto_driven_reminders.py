@@ -144,7 +144,7 @@ class Command(BaseCommand):
                     defaults={
                         'organization': task.organization,
                         'scheduled_at': timezone.make_aware(
-                            datetime.combine(today, datetime.min.time().replace(hour=11))
+                            datetime.combine(today, datetime.min.time().replace(hour=11, minute=30))
                         ),
                         'email_to': client_email,
                         'send_status': 'PENDING',

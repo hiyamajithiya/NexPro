@@ -100,9 +100,9 @@ class ReminderGenerationService:
             for reminder_date in client_reminder_dates:
                 # Create reminders for all dates (past, today, and future)
                 # Past reminders will be marked as overdue and sent immediately
-                # Schedule at 11:00 AM IST
+                # Schedule at 11:30 AM IST
                 scheduled_at = timezone.make_aware(
-                    datetime.combine(reminder_date, datetime.min.time().replace(hour=11, minute=0))
+                    datetime.combine(reminder_date, datetime.min.time().replace(hour=11, minute=30))
                 )
 
                 # Avoid duplicate reminders
@@ -145,9 +145,9 @@ class ReminderGenerationService:
             for reminder_date in employee_reminder_dates:
                 # Create reminders for all dates (past, today, and future)
                 # Past reminders will be marked as overdue and sent immediately
-                # Schedule at 11:00 AM IST
+                # Schedule at 11:30 AM IST
                 scheduled_at = timezone.make_aware(
-                    datetime.combine(reminder_date, datetime.min.time().replace(hour=11, minute=0))
+                    datetime.combine(reminder_date, datetime.min.time().replace(hour=11, minute=30))
                 )
 
                 # Create EMAIL reminder if notification type includes email AND user wants email reminders
@@ -686,10 +686,10 @@ class TaskAutomationService:
         employee_email = work_instance.assigned_to.email if work_instance.assigned_to else None
 
         for rule in active_rules:
-            # Calculate scheduled time (11:00 AM IST)
+            # Calculate scheduled time (11:30 AM IST)
             scheduled_date = work_instance.due_date + timedelta(days=rule.offset_days)
             scheduled_at = timezone.make_aware(
-                datetime.combine(scheduled_date, datetime.min.time().replace(hour=11, minute=0))
+                datetime.combine(scheduled_date, datetime.min.time().replace(hour=11, minute=30))
             )
 
             # Only create reminder if it's in the future
